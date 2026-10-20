@@ -49,7 +49,7 @@ class RecordingExtractor:
         try:
             await asyncio.sleep(self.delay)
             if page_number in self.fail_pages:
-                raise ExtractionError("malformed response")
+                raise ExtractionError("malformed response", "malformed_response")
             if page_number in self.crash_pages:
                 raise RuntimeError("bug")
             return _record(page_number)
@@ -103,7 +103,7 @@ def test_failed_page_does_not_affect_siblings(client_with):
     assert [r["status"] for r in body] == ["pending_review", "extraction_failed", "extraction_failed", "pending_review"]
     failed = body[1]
     assert failed["requires_manual_review"] is True
-    assert failed["review_reasons"] == ["extraction_failed"]
+    assert failed["review_reasons"] == ["malformed_response"]
     assert failed["first_name"]["value"] is None
     assert body[2]["review_reasons"] == ["processing_error"]
     assert body[0]["first_name"]["value"] == "name-1"

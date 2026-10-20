@@ -17,6 +17,7 @@ PageExtractor = Callable[[bytes, int], Awaitable[ExtractedRecord]]
 
 
 def build_failed_record(page_number: int, reason: str) -> ExtractedRecord:
+    """Record for a page that could not be processed: all fields empty, never guessed."""
     return ExtractedRecord(
         page_number=page_number,
         first_name=FieldValue(),
@@ -58,8 +59,8 @@ class DocumentPipeline:
             try:
                 return await self._extract(image_bytes, page_number)
             except ExtractionError as exc:
-                logger.warning("Extraction failed for page %d: %s", page_number, exc)
-                return build_failed_record(page_number, "extraction_failed")
+                logger.warning("Extraction failed for page %d (%s)", page_number, exc.code)
+                return build_failed_record(page_number, exc.code)
             except Exception:
                 logger.exception("Unexpected error while processing page %d", page_number)
                 return build_failed_record(page_number, "processing_error")

@@ -3,12 +3,15 @@ import json
 
 import pytest
 
+from backend.app.config import Settings
+from backend.app.services import extractor_service
 from backend.app.services.extractor_service import (
     RESPONSE_SCHEMA,
     SYSTEM_PROMPT,
     ExtractionError,
     extract_record_from_image,
 )
+from backend.app.services.vision_provider import VisionProviderError, VisionProviderTimeoutError
 from backend.tests.fakes import JPEG_BYTES, PNG_BYTES, FakeVisionProvider, failing_provider, valid_payload
 
 
@@ -84,3 +87,44 @@ def test_empty_or_unsupported_images_are_rejected_before_calling_provider(image)
     with pytest.raises(ExtractionError):
         _extract(provider, image=image)
     assert provider.calls == []
+
+
+@pytest.mark.parametrize(
+    "response, code",
+    [
+        ("", "empty_response"),
+        ("{bad", "malformed_response"),
+        ("[1]", "malformed_response"),
+        ("{}", "malformed_response"),
+    ],
+)
+def test_response_failures_have_codes(response, code):
+    with pytest.raises(ExtractionError) as exc_info:
+        _extract(FakeVisionProvider(response=response))
+    assert exc_info.value.code == code
+
+
+@pytest.mark.parametrize(
+    "error, code",
+    [
+        (VisionProviderError("HTTP 500"), "provider_error"),
+        (VisionProviderTimeoutError("timed out"), "provider_timeout"),
+    ],
+)
+def test_provider_failures_have_codes(error, code):
+    with pytest.raises(ExtractionError) as exc_info:
+        _extract(FakeVisionProvider(error=error))
+    assert exc_info.value.code == code
+
+
+def test_invalid_image_code():
+    with pytest.raises(ExtractionError) as exc_info:
+        _extract(FakeVisionProvider(), image=b"")
+    assert exc_info.value.code == "invalid_image"
+
+
+def test_missing_provider_configuration_is_a_technical_failure(monkeypatch):
+    monkeypatch.setattr(extractor_service, "get_settings", lambda: Settings(_env_file=None, GEMINI_API_KEY=None))
+    with pytest.raises(ExtractionError) as exc_info:
+        _extract(None)
+    assert exc_info.value.code == "provider_not_configured"

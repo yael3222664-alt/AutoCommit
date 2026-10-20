@@ -17,7 +17,9 @@ def valid_payload() -> dict:
         "received_date_stamp": field("05/03/2024"),
         "received_date_handwritten": {"value": None, "confidence": "low", "box": None},
         "sender": field("כללית"),
-        "central_numbers": [{"value": "123456", "confidence": "high", "source": "sticker", "box": None}],
+        "central_numbers": [
+            {"value": "123456", "confidence": "high", "source": "sticker", "box": field("123456")["box"]}
+        ],
         "commitment_numbers": [],
         "requires_manual_review": False,
     }

@@ -8,11 +8,26 @@ from ..config import get_settings
 from ..schemas import ExtractedRecord
 from .ingestion_service import detect_image_mime_type
 from .validator_service import finalize_record
-from .vision_provider import VisionProvider, VisionProviderError, get_vision_provider
+from .vision_provider import (
+    VisionProvider,
+    VisionProviderError,
+    VisionProviderNotConfiguredError,
+    VisionProviderTimeoutError,
+    get_vision_provider,
+)
 
 
 class ExtractionError(Exception):
-    """Raised when a page cannot be extracted; no record is produced."""
+    """Technical failure: the page could not be processed, so no extracted values exist.
+
+    This is distinct from a processed page whose fields are missing or unreadable.
+    `code` is a stable, non-sensitive reason: invalid_image, provider_not_configured,
+    provider_timeout, provider_error, empty_response, or malformed_response.
+    """
+
+    def __init__(self, message: str, code: str) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 SYSTEM_PROMPT = """\
@@ -125,16 +140,18 @@ def _parse_payload(raw_text: str) -> dict[str, Any]:
     if fenced:
         text = fenced.group(1)
     if not text:
-        raise ExtractionError("Vision provider returned an empty response")
+        raise ExtractionError("Vision provider returned an empty response", "empty_response")
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise ExtractionError("Vision provider returned malformed JSON") from exc
+        raise ExtractionError("Vision provider returned malformed JSON", "malformed_response") from exc
     if not isinstance(payload, dict):
-        raise ExtractionError("Vision provider response is not a JSON object")
+        raise ExtractionError("Vision provider response is not a JSON object", "malformed_response")
     missing = [key for key in RESPONSE_SCHEMA["required"] if key not in payload]
     if missing:
-        raise ExtractionError(f"Vision provider response is missing fields: {', '.join(missing)}")
+        raise ExtractionError(
+            f"Vision provider response is missing fields: {', '.join(missing)}", "malformed_response"
+        )
     return payload
 
 
@@ -145,14 +162,14 @@ async def extract_record_from_image(
 ) -> ExtractedRecord:
     """Extract and validate one page image. Raises ExtractionError on any failure."""
     if not image_bytes:
-        raise ExtractionError("Image is empty")
+        raise ExtractionError("Image is empty", "invalid_image")
     mime_type = detect_image_mime_type(image_bytes)
     if mime_type is None:
-        raise ExtractionError("Image format is not supported; expected PNG or JPEG")
+        raise ExtractionError("Image format is not supported; expected PNG or JPEG", "invalid_image")
 
-    if provider is None:
-        provider = get_vision_provider(get_settings())
     try:
+        if provider is None:
+            provider = get_vision_provider(get_settings())
         raw_text = await provider.generate_json(
             image_bytes=image_bytes,
             mime_type=mime_type,
@@ -160,7 +177,11 @@ async def extract_record_from_image(
             user_prompt=USER_PROMPT,
             response_schema=RESPONSE_SCHEMA,
         )
+    except VisionProviderNotConfiguredError as exc:
+        raise ExtractionError(f"Vision provider failed: {exc}", "provider_not_configured") from exc
+    except VisionProviderTimeoutError as exc:
+        raise ExtractionError(f"Vision provider failed: {exc}", "provider_timeout") from exc
     except VisionProviderError as exc:
-        raise ExtractionError(f"Vision provider failed: {exc}") from exc
+        raise ExtractionError(f"Vision provider failed: {exc}", "provider_error") from exc
 
     return finalize_record(_parse_payload(raw_text), page_number)

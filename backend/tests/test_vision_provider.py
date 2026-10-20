@@ -10,6 +10,7 @@ from backend.app.services.vision_provider import (
     GeminiVisionProvider,
     VisionProviderError,
     VisionProviderNotConfiguredError,
+    VisionProviderTimeoutError,
     get_vision_provider,
 )
 
@@ -114,3 +115,11 @@ def test_factory_rejects_unknown_provider():
 def test_factory_builds_gemini_provider():
     provider = get_vision_provider(Settings(_env_file=None, GEMINI_API_KEY="k"))
     assert isinstance(provider, GeminiVisionProvider)
+
+
+def test_timeouts_raise_timeout_error():
+    def handler(request):
+        raise httpx.ReadTimeout("slow", request=request)
+
+    with pytest.raises(VisionProviderTimeoutError):
+        _call(handler)

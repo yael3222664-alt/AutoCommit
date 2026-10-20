@@ -9,7 +9,12 @@ from typing import Any, Optional
 
 from pydantic import ValidationError
 
-from ..constants import SENDING_ENTITIES
+from ..constants import (
+    SENDER_AMBIGUITY_MARGIN,
+    SENDER_MATCH_THRESHOLD,
+    SENDING_ENTITIES,
+    SENDING_ENTITY_ALIASES,
+)
 from ..schemas import (
     BoundingBox,
     CentralNumberItem,
@@ -20,7 +25,7 @@ from ..schemas import (
 )
 
 ISRAELI_ID_LENGTH = 9
-SENDER_FUZZY_THRESHOLD = 0.8
+_ID_SEPARATORS = re.compile(r"[\s-]")
 
 _DATE_FORMATS = (
     "%d/%m/%Y",
@@ -42,15 +47,18 @@ _CONFIDENCE_RANK = {
 def validate_israeli_id(id_str: Optional[str]) -> tuple[Optional[str], bool]:
     """Return the ID zero-padded to 9 digits and whether its check digit is valid.
 
-    Values that are not 1-9 ASCII digits are returned stripped but otherwise unchanged.
+    Cleaning removes only whitespace and hyphens. Padding is applied only to a cleaned
+    value of 1-9 ASCII digits; anything else (non-numeric, longer than 9 digits) is
+    rejected and returned stripped but otherwise unchanged. Digits are never inferred.
     """
     if id_str is None:
         return None, False
-    candidate = id_str.strip()
-    if not candidate:
+    stripped = id_str.strip()
+    if not stripped:
         return None, False
+    candidate = _ID_SEPARATORS.sub("", stripped)
     if not (candidate.isascii() and candidate.isdigit()) or len(candidate) > ISRAELI_ID_LENGTH:
-        return candidate, False
+        return stripped, False
 
     normalized = candidate.zfill(ISRAELI_ID_LENGTH)
     if int(normalized) == 0:
@@ -64,7 +72,11 @@ def validate_israeli_id(id_str: Optional[str]) -> tuple[Optional[str], bool]:
 
 
 def normalize_date(date_str: Optional[str]) -> Optional[str]:
-    """Parse DD/MM/YYYY, DD.MM.YYYY, DD-MM-YYYY (or 2-digit years) and ISO dates to YYYY-MM-DD."""
+    """Parse DD/MM/YYYY, DD.MM.YYYY, DD-MM-YYYY (or 2-digit years) and YYYY-MM-DD to ISO YYYY-MM-DD.
+
+    Two-digit years follow Python's strptime pivot (00-68 -> 20xx, 69-99 -> 19xx).
+    Returns None for impossible calendar dates or unparseable input.
+    """
     if date_str is None:
         return None
     candidate = date_str.strip()
@@ -84,8 +96,10 @@ def _normalize_text(text: str) -> str:
 
 
 _SENDER_ALIASES: dict[str, tuple[str, ...]] = {
-    canonical: tuple({_normalize_text(alias) for alias in (canonical, *aliases)})
-    for canonical, aliases in SENDING_ENTITIES.items()
+    canonical: tuple(
+        {_normalize_text(alias) for alias in (canonical, *SENDING_ENTITY_ALIASES.get(canonical, ()))}
+    )
+    for canonical in SENDING_ENTITIES
 }
 
 
@@ -124,14 +138,26 @@ def normalize_sender(raw_sender: Optional[str]) -> tuple[Optional[str], Confiden
     if contained:
         return raw_sender.strip(), ConfidenceLevel.low
 
-    fuzzy = {
-        c
-        for c, aliases in _SENDER_ALIASES.items()
-        if max(_best_fuzzy_ratio(text, a) for a in aliases) >= SENDER_FUZZY_THRESHOLD
+    scores = {
+        c: max(_best_fuzzy_ratio(text, a) for a in aliases) for c, aliases in _SENDER_ALIASES.items()
     }
-    if len(fuzzy) == 1:
-        return fuzzy.pop(), ConfidenceLevel.medium
+    match = select_fuzzy_match(scores)
+    if match is not None:
+        return match, ConfidenceLevel.medium
     return raw_sender.strip(), ConfidenceLevel.low
+
+
+def select_fuzzy_match(scores: Mapping[str, float]) -> Optional[str]:
+    """Return the best candidate only if it clears the threshold and the ambiguity margin."""
+    if not scores:
+        return None
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    best_name, best_score = ranked[0]
+    if best_score < SENDER_MATCH_THRESHOLD:
+        return None
+    if len(ranked) > 1 and best_score - ranked[1][1] < SENDER_AMBIGUITY_MARGIN:
+        return None
+    return best_name
 
 
 def _min_confidence(*levels: ConfidenceLevel) -> ConfidenceLevel:
@@ -151,21 +177,24 @@ def _parse_box(raw: Any, page_number: int, name: str, reasons: list[str]) -> Opt
     if not isinstance(raw, Mapping):
         reasons.append(f"{name}_invalid_box")
         return None
+    coords = {key: raw.get(key) for key in ("ymin", "xmin", "ymax", "xmax")}
     try:
-        return BoundingBox(
-            ymin=raw.get("ymin"),
-            xmin=raw.get("xmin"),
-            ymax=raw.get("ymax"),
-            xmax=raw.get("xmax"),
-            page_number=page_number,
-        )
+        # Strict: strings, booleans, NaN and out-of-range/misordered values are rejected,
+        # never coerced or corrected.
+        return BoundingBox.model_validate({**coords, "page_number": page_number}, strict=True)
     except ValidationError:
         reasons.append(f"{name}_invalid_box")
         return None
 
 
 def _parse_text(raw: Any, name: str, page_number: int, reasons: list[str]) -> FieldValue:
-    """Parse an untrusted {value, confidence, box} object; missing values become low/None."""
+    """Parse an untrusted {value, confidence, box} object; missing values become low/None.
+
+    A missing box on an unavailable field is normal. A missing box on an extracted value
+    is flagged as `<name>_box_missing`; an invalid box anywhere is dropped and flagged
+    as `<name>_invalid_box`. A valid box on an unreadable field is kept so reviewers can
+    see where the field is.
+    """
     if raw is None:
         return FieldValue()
     if not isinstance(raw, Mapping):
@@ -176,15 +205,14 @@ def _parse_text(raw: Any, name: str, page_number: int, reasons: list[str]) -> Fi
     if value is not None and not isinstance(value, str):
         reasons.append(f"{name}_invalid_type")
         return FieldValue()
-    value = value.strip() if value else None
+    value = (value.strip() or None) if value else None
+    box = _parse_box(raw.get("box"), page_number, name, reasons)
     if value is None:
-        return FieldValue()
+        return FieldValue(box=box)
+    if raw.get("box") is None:
+        reasons.append(f"{name}_box_missing")
 
-    return FieldValue(
-        value=value,
-        confidence=_parse_confidence(raw.get("confidence")),
-        box=_parse_box(raw.get("box"), page_number, name, reasons),
-    )
+    return FieldValue(value=value, confidence=_parse_confidence(raw.get("confidence")), box=box)
 
 
 def _finalize_simple(field: FieldValue, name: str, reasons: list[str]) -> FieldValue:
@@ -230,7 +258,7 @@ def _finalize_received_date(
 
     if stamp.value is None and handwritten.value is None:
         reasons.append("received_date_missing")
-    return FieldValue(raw_value=stamp.value or handwritten.value)
+    return FieldValue(raw_value=stamp.value or handwritten.value, box=stamp.box or handwritten.box)
 
 
 def _finalize_sender(field: FieldValue, reasons: list[str]) -> FieldValue:
@@ -266,6 +294,8 @@ def _parse_items(raw: Any, name: str, page_number: int, reasons: list[str]) -> l
         confidence = _parse_confidence(item.get("confidence"))
         if confidence is ConfidenceLevel.low:
             reasons.append(f"{item_name}_low_confidence")
+        if item.get("box") is None:
+            reasons.append(f"{item_name}_box_missing")
         items.append(
             {
                 "value": value.strip(),
@@ -285,8 +315,11 @@ def finalize_record(raw: Mapping[str, Any], page_number: int) -> ExtractedRecord
     """Validate untrusted model output for one page and build an ExtractedRecord.
 
     Any missing, invalid, or low-confidence data is recorded in review_reasons and sets
-    requires_manual_review.
+    requires_manual_review; the record is still a successfully processed page. A payload
+    that is not a JSON object is a technical failure and raises TypeError.
     """
+    if not isinstance(raw, Mapping):
+        raise TypeError("Extraction payload must be a JSON object")
     reasons: list[str] = []
 
     def text(name: str) -> FieldValue:

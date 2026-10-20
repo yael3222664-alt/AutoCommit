@@ -16,6 +16,10 @@ class VisionProviderNotConfiguredError(VisionProviderError):
     pass
 
 
+class VisionProviderTimeoutError(VisionProviderError):
+    pass
+
+
 class VisionProvider(Protocol):
     async def generate_json(
         self,
@@ -97,6 +101,8 @@ class GeminiVisionProvider:
             else:
                 async with httpx.AsyncClient(timeout=self._timeout) as client:
                     response = await client.post(self._url, json=body, headers=headers)
+        except httpx.TimeoutException as exc:
+            raise VisionProviderTimeoutError(f"Gemini request timed out: {type(exc).__name__}") from exc
         except httpx.HTTPError as exc:
             raise VisionProviderError(f"Gemini request failed: {type(exc).__name__}") from exc
 

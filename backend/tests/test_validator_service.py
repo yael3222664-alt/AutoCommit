@@ -1,11 +1,20 @@
+import math
+
 import pytest
 
-from backend.app.constants import SENDING_ENTITIES
+from backend.app.constants import (
+    SENDER_AMBIGUITY_MARGIN,
+    SENDER_MATCH_THRESHOLD,
+    SENDING_ENTITIES,
+    SENDING_ENTITY_ALIASES,
+)
 from backend.app.schemas import ConfidenceLevel
+from backend.app.services.document_pipeline import EXTRACTION_FAILED_STATUS, build_failed_record
 from backend.app.services.validator_service import (
     finalize_record,
     normalize_date,
     normalize_sender,
+    select_fuzzy_match,
     validate_israeli_id,
 )
 
@@ -28,7 +37,7 @@ def test_invalid_check_digit():
     assert validate_israeli_id("123456789") == ("123456789", False)
 
 
-@pytest.mark.parametrize("raw", ["12345678a", "123 456 782", "1234567890", "１２３４５６７８２"])
+@pytest.mark.parametrize("raw", ["12345678a", "1234567890", "１２３４５６７８２", "12345?782", "1234.5678"])
 def test_malformed_id_is_returned_unchanged(raw):
     assert validate_israeli_id(raw) == (raw, False)
 
@@ -255,6 +264,9 @@ def test_invalid_field_types_become_null_and_flag_review(bad_field):
         {"ymin": 0.1},
         "0.1,0.2",
         {"ymin": "a", "xmin": 0, "ymax": 1, "xmax": 1},
+        {"ymin": "0.1", "xmin": 0, "ymax": 1, "xmax": 1},
+        {"ymin": True, "xmin": 0, "ymax": 1, "xmax": 1},
+        {"ymin": math.nan, "xmin": 0, "ymax": 1, "xmax": 1},
     ],
 )
 def test_invalid_box_is_dropped_and_flags_review(bad_box):
@@ -302,3 +314,181 @@ def test_malformed_list_items_are_skipped_and_flagged():
 def test_model_review_flag_is_respected():
     record = finalize_record(_payload(requires_manual_review=True), 1)
     assert record.review_reasons == ["flagged_by_model"]
+
+
+# --- reference constants ---------------------------------------------------
+
+
+def test_aliases_belong_to_known_entities_and_are_unique():
+    assert set(SENDING_ENTITY_ALIASES) <= set(SENDING_ENTITIES)
+    assert len(SENDING_ENTITIES) == len(set(SENDING_ENTITIES)) == 21
+    all_names = list(SENDING_ENTITIES) + [a for aliases in SENDING_ENTITY_ALIASES.values() for a in aliases]
+    assert len(all_names) == len(set(all_names))
+
+
+def test_matching_thresholds_are_sane():
+    assert 0.0 < SENDER_MATCH_THRESHOLD <= 1.0
+    assert 0.0 < SENDER_AMBIGUITY_MARGIN < SENDER_MATCH_THRESHOLD
+
+
+# --- Israeli ID boundary cases ---------------------------------------------
+
+
+@pytest.mark.parametrize("raw", ["123 456 782", "12345678-2", "\t123456782\n"])
+def test_id_separators_are_cleaned(raw):
+    assert validate_israeli_id(raw) == (VALID_ID, True)
+
+
+@pytest.mark.parametrize("raw", ["1234567820", "1234 567 890", "000123456782"])
+def test_id_longer_than_nine_digits_is_rejected_unchanged(raw):
+    assert validate_israeli_id(raw) == (raw, False)
+
+
+@pytest.mark.parametrize("raw", ["-", " - ", "abc"])
+def test_id_non_numeric_after_cleaning_is_rejected(raw):
+    assert validate_israeli_id(raw) == (raw.strip(), False)
+
+
+def test_padded_id_with_bad_checksum_is_invalid():
+    assert validate_israeli_id("12345") == ("000012345", False)
+
+
+# --- date boundary cases ---------------------------------------------------
+
+
+@pytest.mark.parametrize("raw", ["29/02/2023", "31/04/2024", "00/01/2024", "32.01.2024", "2024-02-30", "0000-01-01"])
+def test_impossible_calendar_dates(raw):
+    assert normalize_date(raw) is None
+
+
+def test_leap_day_is_valid():
+    assert normalize_date("29/02/2024") == "2024-02-29"
+
+
+@pytest.mark.parametrize("raw", ["\t", "\n  "])
+def test_whitespace_only_date(raw):
+    assert normalize_date(raw) is None
+
+
+# --- sender thresholds and ambiguity ---------------------------------------
+
+
+def test_two_close_fuzzy_candidates_are_ambiguous():
+    assert normalize_sender("מאוחת לאומת") == ("מאוחת לאומת", ConfidenceLevel.low)
+
+
+def test_two_whole_phrase_matches_are_ambiguous():
+    assert normalize_sender("מאיר כרמל") == ("מאיר כרמל", ConfidenceLevel.low)
+
+
+@pytest.mark.parametrize("raw", ["כרמר", "רבון"])
+def test_best_candidate_below_threshold_is_rejected(raw):
+    assert normalize_sender(raw) == (raw, ConfidenceLevel.low)
+
+
+@pytest.mark.parametrize("raw", ["\t", "\n "])
+def test_whitespace_only_sender(raw):
+    assert normalize_sender(raw) == (None, ConfidenceLevel.low)
+
+
+def test_select_fuzzy_match_rules():
+    t, m = SENDER_MATCH_THRESHOLD, SENDER_AMBIGUITY_MARGIN
+    assert select_fuzzy_match({}) is None
+    assert select_fuzzy_match({"a": t - 0.01}) is None
+    assert select_fuzzy_match({"a": t}) == "a"
+    assert select_fuzzy_match({"a": 0.99, "b": 0.99 - m / 2}) is None
+    assert select_fuzzy_match({"a": 0.99, "b": 0.99 - m - 0.01}) == "a"
+
+
+def test_ambiguous_sender_in_record_preserves_raw_and_flags_review():
+    record = finalize_record(_payload(sender=_field("מאוחת לאומת")), 1)
+
+    assert record.sender.value == "מאוחת לאומת"
+    assert record.sender.raw_value == "מאוחת לאומת"
+    assert "sender_unrecognized" in record.review_reasons
+
+
+# --- bounding box semantics ------------------------------------------------
+
+
+def test_missing_box_on_unavailable_field_is_not_a_box_problem():
+    record = finalize_record(_payload(first_name={"value": None, "confidence": "low", "box": None}), 1)
+
+    assert record.first_name == record.first_name.model_copy(update={"value": None, "box": None})
+    assert "first_name_missing" in record.review_reasons
+    assert not any(r.startswith("first_name_") and "box" in r for r in record.review_reasons)
+
+
+def test_missing_box_on_extracted_value_flags_review():
+    record = finalize_record(_payload(first_name={"value": "דנה", "confidence": "high", "box": None}), 1)
+
+    assert record.first_name.value == "דנה"
+    assert record.first_name.box is None
+    assert record.review_reasons == ["first_name_box_missing"]
+
+
+def test_valid_box_is_kept_for_unreadable_field():
+    record = finalize_record(_payload(id_number={"value": None, "confidence": "low", "box": _box()}), 1)
+
+    assert record.id_number.value is None
+    assert record.id_number.box is not None
+    assert record.review_reasons == ["id_number_missing"]
+
+
+def test_invalid_box_on_unreadable_field_is_flagged():
+    record = finalize_record(
+        _payload(id_number={"value": None, "confidence": "low", "box": _box(ymin=0.9, ymax=0.1)}), 1
+    )
+
+    assert record.id_number.box is None
+    assert "id_number_invalid_box" in record.review_reasons
+
+
+def test_invalid_box_is_not_corrected():
+    record = finalize_record(_payload(first_name=_field("דנה", box=_box(xmax=1.0000001))), 1)
+    assert record.first_name.box is None
+
+
+def test_box_edges_are_valid():
+    record = finalize_record(_payload(first_name=_field("דנה", box=_box(ymin=0, xmin=0, ymax=1, xmax=1))), 1)
+    assert record.first_name.box is not None
+    assert record.review_reasons == []
+
+
+def test_missing_item_box_flags_review():
+    items = [{"value": "123456", "confidence": "high", "source": "sticker", "box": None}]
+    record = finalize_record(_payload(central_numbers=items), 1)
+
+    assert record.central_numbers[0].value == "123456"
+    assert record.review_reasons == ["central_numbers[0]_box_missing"]
+
+
+# --- technical failures vs. missing data -----------------------------------
+
+
+@pytest.mark.parametrize("raw", [None, [], "text", 42])
+def test_non_object_payload_is_a_technical_failure(raw):
+    with pytest.raises(TypeError):
+        finalize_record(raw, 1)
+
+
+def test_page_with_no_readable_fields_is_processed_not_failed():
+    record = finalize_record({}, 1)
+
+    assert record.status == "pending_review"
+    assert record.requires_manual_review is True
+    assert all(getattr(record, f).value is None for f in ("first_name", "last_name", "id_number", "sender"))
+    assert {"first_name_missing", "id_number_missing", "received_date_missing", "sender_missing"} <= set(
+        record.review_reasons
+    )
+
+
+def test_technical_failure_record_is_empty_and_marked_failed():
+    record = build_failed_record(4, "provider_timeout")
+
+    assert record.status == EXTRACTION_FAILED_STATUS
+    assert record.page_number == 4
+    assert record.requires_manual_review is True
+    assert record.review_reasons == ["provider_timeout"]
+    assert record.id_number.value is None
+    assert record.central_numbers == []
