@@ -13,7 +13,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    APP_NAME: str = "Medical Form Processing Engine"
+    APP_NAME: str = "AutoCommit Engine"
     DEBUG: bool = True
     ALLOWED_ORIGINS: list[str] = [
         "http://localhost:3000",
