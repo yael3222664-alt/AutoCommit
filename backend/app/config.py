@@ -1,6 +1,8 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -20,6 +22,15 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://localhost:4200",
     ]
+
+    MAX_UPLOAD_SIZE_MB: int = Field(default=20, ge=1)
+
+    VISION_PROVIDER: str = "gemini"
+    VISION_MAX_CONCURRENCY: int = Field(default=3, ge=1)
+    VISION_TIMEOUT_SECONDS: float = Field(default=120.0, gt=0)
+    GEMINI_API_KEY: Optional[SecretStr] = None
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_API_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta"
 
 
 @lru_cache

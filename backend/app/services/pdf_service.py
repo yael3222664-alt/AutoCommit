@@ -9,11 +9,15 @@ class PDFProcessingError(ValueError):
     """Raised when input bytes cannot be processed as a PDF document."""
 
 
+def has_pdf_header(file_bytes: bytes) -> bool:
+    return _PDF_HEADER in file_bytes[:_PDF_HEADER_SEARCH_WINDOW]
+
+
 def convert_pdf_to_images(file_bytes: bytes) -> list[bytes]:
     """Render every page of a PDF to PNG bytes at 300 DPI, in page order."""
     if not file_bytes:
         raise PDFProcessingError("File is empty")
-    if _PDF_HEADER not in file_bytes[:_PDF_HEADER_SEARCH_WINDOW]:
+    if not has_pdf_header(file_bytes):
         raise PDFProcessingError("File is not a PDF document")
 
     try:

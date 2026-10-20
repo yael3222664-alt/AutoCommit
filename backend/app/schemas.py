@@ -5,6 +5,9 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class ConfidenceLevel(str, Enum):
+    """high: clear and unambiguous; medium: readable with some uncertainty;
+    low: missing, unreadable, ambiguous, or invalid."""
+
     high = "high"
     medium = "medium"
     low = "low"
@@ -32,6 +35,7 @@ class FieldValue(BaseModel):
     value: Optional[str] = None
     confidence: ConfidenceLevel = ConfidenceLevel.low
     box: Optional[BoundingBox] = None
+    raw_value: Optional[str] = None  # text as read, before normalization
 
 
 class CentralNumberItem(BaseModel):
@@ -59,6 +63,7 @@ class ExtractedRecord(BaseModel):
     sender: FieldValue
     commitment_numbers: list[CommitmentNumberItem] = []
     requires_manual_review: bool = False
+    review_reasons: list[str] = []
     status: str = "pending_review"
 
 

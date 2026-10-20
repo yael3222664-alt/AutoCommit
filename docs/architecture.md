@@ -40,15 +40,19 @@ backend/
 ├── app/
 │   ├── main.py              # Application entry point, CORS middleware, lifespan events
 │   ├── config.py            # Centralized settings via pydantic-settings
+│   ├── constants.py         # Closed reference data (SENDING_ENTITIES whitelist)
 │   ├── schemas.py           # Core Pydantic V2 models, BoundingBox, and API contracts
 │   ├── api/
 │   │   ├── __init__.py
 │   │   └── routes.py        # HTTP route handlers (upload, health, query)
 │   └── services/
 │       ├── __init__.py
-│       ├── pdf_service.py   # Document rendering and page isolation
-│       ├── extractor.py     # Vision model client and schema parsing
-│       └── validator.py     # Domain normalization and business rule validation
+│       ├── ingestion_service.py   # Upload validation (size, content-based file type)
+│       ├── pdf_service.py         # Document rendering and page isolation
+│       ├── document_pipeline.py   # Per-page orchestration, concurrency limit, failure isolation
+│       ├── vision_provider.py     # Vision provider interface and Gemini adapter
+│       ├── extractor_service.py   # Extraction prompt, response schema, and output parsing
+│       └── validator_service.py   # Domain normalization and business rule validation
 ├── tests/                   # Pytest unit and integration test suites
 ├── requirements.txt         # Production and development dependencies
 └── .env.example             # Configuration template
