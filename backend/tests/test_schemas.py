@@ -121,3 +121,10 @@ def test_record_response_requires_audit_fields():
     )
     assert response.id == "rec-1"
     assert response.document_id == "doc-1"
+
+
+def test_record_status_is_a_closed_enum():
+    base = {name: {} for name in ("first_name", "last_name", "id_number", "received_date", "sender")}
+    assert ExtractedRecord.model_validate({**base, "status": "approved"}).status == "approved"
+    with pytest.raises(ValidationError):
+        ExtractedRecord.model_validate({**base, "status": "archived"})

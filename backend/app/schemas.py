@@ -52,6 +52,13 @@ class CommitmentNumberItem(BaseModel):
     box: Optional[BoundingBox] = None
 
 
+class RecordStatus(str, Enum):
+    pending_review = "pending_review"
+    approved = "approved"
+    rejected = "rejected"
+    extraction_failed = "extraction_failed"
+
+
 class ExtractedRecord(BaseModel):
     page_number: int = Field(default=1, ge=1)
     image_path: Optional[str] = None
@@ -64,14 +71,7 @@ class ExtractedRecord(BaseModel):
     commitment_numbers: list[CommitmentNumberItem] = []
     requires_manual_review: bool = False
     review_reasons: list[str] = []
-    status: str = "pending_review"
-
-
-class RecordStatus(str, Enum):
-    pending_review = "pending_review"
-    approved = "approved"
-    rejected = "rejected"
-    extraction_failed = "extraction_failed"
+    status: RecordStatus = RecordStatus.pending_review
 
 
 class RecordResponse(ExtractedRecord):
