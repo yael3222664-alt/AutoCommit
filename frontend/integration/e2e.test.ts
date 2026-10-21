@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ApiError, createApiClient, type RecordApi } from "../src/services/api";
+import { ApiError, createApiClient, recordImageUrl, type RecordApi } from "../src/services/api";
 import { createRecordStore, type RecordStore, type RecordStoreState } from "../src/store/recordStore";
 import {
   CONFIDENCE_LEVELS,
@@ -217,6 +217,25 @@ describe("end-to-end record lifecycle", () => {
     // The store refreshes the list after an upload.
     const state = await waitForState(store, (s) => s.list.status === "success" && s.list.items.length === 3);
     expect(state.list.total).toBe(3);
+  });
+
+  it("serves the 300 DPI page image each record's boxes refer to, failed pages included", async () => {
+    const images: Buffer[] = [];
+    for (const page of [1, 2, 3]) {
+      const record = await rawJson<RecordResponse>(`/api/records/${ids[page]}`);
+      expect(record.image_path).toBe(`${record.document_id}/${page}.png`);
+      const response = await fetch(recordImageUrl(ids[page]!, backend.baseUrl));
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("image/png");
+      const png = Buffer.from(await response.arrayBuffer());
+      expect(png.subarray(1, 4).toString("ascii")).toBe("PNG");
+      // 300x400 pt rendered at 300 DPI; IHDR holds big-endian width and height at bytes 16..24.
+      expect(png.readUInt32BE(16)).toBe(1250);
+      expect([1666, 1667]).toContain(png.readUInt32BE(20));
+      images.push(png);
+    }
+    expect(new Set(images.map((png) => png.toString("base64"))).size).toBe(3);
+    expect((await fetch(recordImageUrl("missing", backend.baseUrl))).status).toBe(404);
   });
 
   it("raw API responses carry exactly the fields the frontend types declare", async () => {

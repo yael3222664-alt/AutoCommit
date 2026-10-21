@@ -46,6 +46,8 @@ export interface CropCanvas {
 export interface CropOptions {
   /** Extra margin around the box, in normalized units, clamped to the image. */
   padding?: number;
+  /** Output magnification relative to the source pixels (e.g. 1.4); defaults to 1. */
+  scale?: number;
   mimeType?: string;
   quality?: number;
   createCanvas?: () => CropCanvas;
@@ -53,7 +55,15 @@ export interface CropOptions {
 
 const PIXEL_EPSILON = 1e-6;
 
-export type CropResult = { ok: true; dataUrl: string; rect: PixelRect } | { ok: false; error: CropError };
+/** `rect` is the source region in image pixels; width/height are the scaled output size. */
+export interface CroppedImage {
+  dataUrl: string;
+  rect: PixelRect;
+  width: number;
+  height: number;
+}
+
+export type CropResult = ({ ok: true } & CroppedImage) | { ok: false; error: CropError };
 
 /**
  * Returns null for a croppable box, otherwise the reason it cannot be cropped.
@@ -114,18 +124,22 @@ function isSecurityError(error: unknown): boolean {
  * Crop a loaded image to the box and return a data URL.
  * Throws CropError; a cross-origin image without CORS headers yields "tainted_canvas".
  */
-export function cropImage(image: CropSource & CanvasImageSource, box: CropBox, options: CropOptions = {}): { dataUrl: string; rect: PixelRect } {
+export function cropImage(image: CropSource & CanvasImageSource, box: CropBox, options: CropOptions = {}): CroppedImage {
   if (!isImageReady(image)) throw new CropError("image_not_loaded", "Image is not fully loaded");
   const rect = computeCropRect(box, image.naturalWidth, image.naturalHeight, options.padding ?? 0);
+  const scale = options.scale ?? 1;
+  if (!Number.isFinite(scale) || scale <= 0) throw new CropError("invalid_box", "Scale must be a positive number");
+  const width = Math.max(1, Math.round(rect.width * scale));
+  const height = Math.max(1, Math.round(rect.height * scale));
 
   const canvas = (options.createCanvas ?? defaultCanvas)();
-  canvas.width = rect.width;
-  canvas.height = rect.height;
+  canvas.width = width;
+  canvas.height = height;
   const context = canvas.getContext("2d");
   if (!context) throw new CropError("canvas_unavailable", "2D canvas context is not available");
 
   try {
-    context.drawImage(image, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height);
+    context.drawImage(image, rect.x, rect.y, rect.width, rect.height, 0, 0, width, height);
   } catch (cause) {
     throw new CropError("export_failed", "Could not draw image onto canvas", { cause });
   }
@@ -142,7 +156,7 @@ export function cropImage(image: CropSource & CanvasImageSource, box: CropBox, o
   if (!dataUrl.startsWith("data:") || dataUrl === "data:,") {
     throw new CropError("export_failed", "Canvas produced an empty image");
   }
-  return { dataUrl, rect };
+  return { dataUrl, rect, width, height };
 }
 
 /** Non-throwing variant for UI code: returns the crop or the reason it failed. */

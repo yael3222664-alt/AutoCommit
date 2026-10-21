@@ -1,17 +1,19 @@
 import hashlib
+import logging
 from datetime import datetime
 from functools import lru_cache, partial
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..config import Settings, get_settings
 from ..db.session import get_db_session
-from ..schemas import RecordListResponse, RecordResponse, RecordStatus, RecordUpdateSchema
-from ..services.document_pipeline import DocumentPipeline
+from ..schemas import ExtractedRecord, RecordListResponse, RecordResponse, RecordStatus, RecordUpdateSchema
+from ..services.document_pipeline import DocumentPipeline, ProcessedPage
 from ..services.extractor_service import extract_record_from_image
 from ..services.ingestion_service import (
     EmptyUploadError,
@@ -19,6 +21,7 @@ from ..services.ingestion_service import (
     UnsupportedFileTypeError,
     validate_upload,
 )
+from ..services.page_image_store import PageImageError, PageImageStore
 from ..services.pdf_service import PDFProcessingError
 from ..services.record_service import (
     InvalidRecordUpdateError,
@@ -27,6 +30,8 @@ from ..services.record_service import (
     RecordService,
 )
 from ..services.vision_provider import VisionProviderNotConfiguredError, get_vision_provider
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -50,6 +55,24 @@ def get_document_pipeline() -> DocumentPipeline:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Vision provider is not configured") from exc
 
 
+@lru_cache
+def get_page_image_store() -> PageImageStore:
+    return PageImageStore(get_settings().PAGE_IMAGE_DIR)
+
+
+def _store_page_images(images: PageImageStore, document_id: str, pages: list[ProcessedPage]) -> list[ExtractedRecord]:
+    """Persist each page image and link it from its record. A storage failure only loses the image."""
+    records = []
+    for page in pages:
+        try:
+            key = images.save(document_id, page.record.page_number, page.image)
+        except (OSError, PageImageError):
+            logger.exception("Could not store image for page %d", page.record.page_number)
+            key = None
+        records.append(page.record.model_copy(update={"image_path": key}))
+    return records
+
+
 def get_record_service(session: Session = Depends(get_db_session)) -> RecordService:
     return RecordService(session)
 
@@ -71,6 +94,7 @@ async def upload_document(
     settings: Settings = Depends(get_settings),
     pipeline: DocumentPipeline = Depends(get_document_pipeline),
     records: RecordService = Depends(get_record_service),
+    images: PageImageStore = Depends(get_page_image_store),
 ) -> list[RecordResponse]:
     max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
     data = await _read_limited(file, max_bytes)
@@ -84,11 +108,12 @@ async def upload_document(
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
 
     try:
-        extracted = await pipeline.process(data, file_type)
+        pages = await pipeline.process_pages(data, file_type)
     except PDFProcessingError as exc:
         raise HTTPException(422, str(exc)) from exc
 
     document_id = hashlib.sha256(data).hexdigest()
+    extracted = await run_in_threadpool(_store_page_images, images, document_id, pages)
     try:
         record_ids = await run_in_threadpool(records.save_records, extracted, document_id)
     except SQLAlchemyError as exc:
@@ -141,3 +166,21 @@ def update_record(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     except InvalidRecordUpdateError as exc:
         raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/records/{record_id}/image", response_class=FileResponse)
+def get_record_image(
+    record_id: str,
+    records: RecordService = Depends(get_record_service),
+    images: PageImageStore = Depends(get_page_image_store),
+) -> FileResponse:
+    """The page image the record was extracted from; bounding boxes are normalized to it."""
+    try:
+        record = records.get_record(record_id)
+    except RecordNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Record not found") from exc
+    stored = images.resolve(record.image_path) if record.image_path else None
+    if stored is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Page image not available")
+    path, media_type = stored
+    return FileResponse(path, media_type=media_type, headers={"Cache-Control": "private, max-age=3600"})

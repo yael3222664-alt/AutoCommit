@@ -76,6 +76,7 @@ def write_sample_pdf(path: Path) -> None:
 def serve(port: int, database: Path, fail_pages: set[int]) -> None:
     # Settings and the engine are cached on first import, so configure the database first.
     os.environ["DATABASE_URL"] = f"sqlite:///{database}"
+    os.environ["PAGE_IMAGE_DIR"] = str(database.parent / f"{database.stem}-pages")
 
     import uvicorn
 

@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     GEMINI_API_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta"
 
     DATABASE_URL: str = f"sqlite:///{BACKEND_DIR / 'data' / 'autocommit.db'}"
+    PAGE_IMAGE_DIR: Path = BACKEND_DIR / "data" / "pages"
 
 
 @lru_cache

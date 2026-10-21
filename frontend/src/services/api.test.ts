@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { makeRecord } from "../test/fixtures";
-import { ApiError, buildQueryString, createApiClient } from "./api";
+import { ApiError, buildQueryString, createApiClient, recordImageUrl } from "./api";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -246,5 +246,12 @@ describe("network failures", () => {
 
     expect(error.kind).toBe("aborted");
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe("recordImageUrl", () => {
+  it("builds the record image endpoint and encodes the id", () => {
+    expect(recordImageUrl("abc-1", "")).toBe("/api/records/abc-1/image");
+    expect(recordImageUrl("a/b", "http://host:8000/")).toBe("http://host:8000/api/records/a%2Fb/image");
   });
 });

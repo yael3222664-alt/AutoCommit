@@ -106,9 +106,65 @@ describe("cropImage", () => {
 
     const result = cropImage(image, BOX, { createCanvas: () => canvas });
 
-    expect(result).toEqual({ dataUrl: "data:image/png;base64,AAAA", rect: { x: 200, y: 200, width: 300, height: 400 } });
+    expect(result).toEqual({
+      dataUrl: "data:image/png;base64,AAAA",
+      rect: { x: 200, y: 200, width: 300, height: 400 },
+      width: 300,
+      height: 400,
+    });
     expect([canvas.width, canvas.height]).toEqual([300, 400]);
     expect(drawImage).toHaveBeenCalledWith(image, 200, 200, 300, 400, 0, 0, 300, 400);
+  });
+
+  it("magnifies the output canvas by the scale factor", () => {
+    const { canvas, drawImage } = fakeCanvas();
+    const image = fakeImage();
+
+    const result = cropImage(image, BOX, { createCanvas: () => canvas, scale: 1.4 });
+
+    expect(result.rect).toEqual({ x: 200, y: 200, width: 300, height: 400 });
+    expect([result.width, result.height]).toEqual([420, 560]);
+    expect([canvas.width, canvas.height]).toEqual([420, 560]);
+    expect(drawImage).toHaveBeenCalledWith(image, 200, 200, 300, 400, 0, 0, 420, 560);
+  });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])("rejects scale %s", (scale) => {
+    const { canvas } = fakeCanvas();
+    expectCropError(() => cropImage(fakeImage(), BOX, { createCanvas: () => canvas, scale }), "invalid_box");
+  });
+
+  it.each([
+    [2480, 3508],
+    [1240, 1754],
+    [3024, 4032],
+    [120, 170],
+  ])("crops the padded, zoomed field consistently at %ix%i", (width, height) => {
+    const box: CropBox = { ymin: 0.2, xmin: 0.3, ymax: 0.25, xmax: 0.6 };
+    const { canvas, drawImage } = fakeCanvas();
+    const image = fakeImage(width, height);
+
+    const result = cropImage(image, box, { createCanvas: () => canvas, padding: 0.01, scale: 1.4 });
+
+    const { rect } = result;
+    expect(rect.x).toBe(Math.floor(0.29 * width + 1e-6));
+    expect(rect.y).toBe(Math.floor(0.19 * height + 1e-6));
+    expect(rect.x + rect.width).toBe(Math.ceil(0.61 * width - 1e-6));
+    expect(rect.y + rect.height).toBe(Math.ceil(0.26 * height - 1e-6));
+    expect(rect.x + rect.width).toBeLessThanOrEqual(width);
+    expect(rect.y + rect.height).toBeLessThanOrEqual(height);
+    expect(result.width).toBe(Math.round(rect.width * 1.4));
+    expect(result.height).toBe(Math.round(rect.height * 1.4));
+    expect(drawImage).toHaveBeenCalledWith(image, rect.x, rect.y, rect.width, rect.height, 0, 0, result.width, result.height);
+  });
+
+  it("clamps padding at the page edge at any resolution", () => {
+    for (const [width, height] of [[2480, 3508], [600, 800]] as const) {
+      const { canvas } = fakeCanvas();
+      const { rect } = cropImage(fakeImage(width, height), { ymin: 0.98, xmin: 0, ymax: 1, xmax: 0.02 }, { createCanvas: () => canvas, padding: 0.05 });
+      expect(rect.x).toBe(0);
+      expect(rect.y + rect.height).toBe(height);
+      expect(rect.x + rect.width).toBe(Math.ceil(0.07 * width - 1e-6));
+    }
   });
 
   it("passes export format options", () => {

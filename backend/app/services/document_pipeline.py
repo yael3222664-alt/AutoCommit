@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 from ..schemas import ExtractedRecord, FieldValue
 from .extractor_service import ExtractionError
@@ -31,6 +32,12 @@ def build_failed_record(page_number: int, reason: str) -> ExtractedRecord:
     )
 
 
+@dataclass(frozen=True)
+class ProcessedPage:
+    record: ExtractedRecord
+    image: bytes
+
+
 class DocumentPipeline:
     """Splits a document into pages and extracts each page independently.
 
@@ -44,15 +51,18 @@ class DocumentPipeline:
         self._semaphore = asyncio.Semaphore(max_concurrency)
 
     async def process(self, file_bytes: bytes, file_type: FileType) -> list[ExtractedRecord]:
+        return [page.record for page in await self.process_pages(file_bytes, file_type)]
+
+    async def process_pages(self, file_bytes: bytes, file_type: FileType) -> list[ProcessedPage]:
+        """Like `process`, but also returns each page image the record was extracted from."""
         if file_type is FileType.pdf:
-            pages = await asyncio.to_thread(convert_pdf_to_images, file_bytes)
+            images = await asyncio.to_thread(convert_pdf_to_images, file_bytes)
         else:
-            pages = [file_bytes]
-        return list(
-            await asyncio.gather(
-                *(self._process_page(image, number) for number, image in enumerate(pages, start=1))
-            )
+            images = [file_bytes]
+        records = await asyncio.gather(
+            *(self._process_page(image, number) for number, image in enumerate(images, start=1))
         )
+        return [ProcessedPage(record=record, image=image) for record, image in zip(records, images)]
 
     async def _process_page(self, image_bytes: bytes, page_number: int) -> ExtractedRecord:
         async with self._semaphore:

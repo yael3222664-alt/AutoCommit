@@ -12,14 +12,22 @@ interface RecordStoreProviderProps {
 }
 
 export function RecordStoreProvider({ children, store }: RecordStoreProviderProps) {
-  const [ownStore] = useState(() => store ?? createRecordStore(api));
-  const value = store ?? ownStore;
+  const [ownStore, setOwnStore] = useState<RecordStore | null>(null);
 
+  // The store is created and disposed by the same effect run, so a remount (e.g. StrictMode's
+  // mount → unmount → mount in development) gets a fresh store instead of a disposed one.
   useEffect(() => {
     if (store) return undefined;
-    return () => ownStore.dispose();
-  }, [store, ownStore]);
+    const created = createRecordStore(api);
+    setOwnStore(created);
+    return () => {
+      created.dispose();
+      setOwnStore((current) => (current === created ? null : current));
+    };
+  }, [store]);
 
+  const value = store ?? ownStore;
+  if (!value) return null;
   return <RecordStoreContext.Provider value={value}>{children}</RecordStoreContext.Provider>;
 }
 

@@ -177,4 +177,11 @@ export function createApiClient(options: ApiClientOptions = {}): RecordApi {
   };
 }
 
-export const api: RecordApi = createApiClient({ baseUrl: import.meta.env.VITE_API_BASE_URL ?? "" });
+const DEFAULT_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+
+export const api: RecordApi = createApiClient({ baseUrl: DEFAULT_BASE_URL });
+
+/** URL of the page image a record was extracted from (GET /api/records/{id}/image). */
+export function recordImageUrl(id: string, baseUrl: string = DEFAULT_BASE_URL): string {
+  return `${baseUrl.replace(/\/+$/, "")}/api/records/${encodeURIComponent(id)}/image`;
+}
