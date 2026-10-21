@@ -1,0 +1,108 @@
+/*
+ * Design tokens. Components and stylesheets consume only these variables, so a theme is a
+ * different set of values for the same names (e.g. under [data-theme="..."]).
+ */
+:root {
+  color-scheme: light;
+
+  /* Typography */
+  --font-family: "Rubik", "Assistant", "Segoe UI", system-ui, Arial, sans-serif;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.85rem;
+  --font-size-md: 0.95rem;
+  --font-size-lg: 1.1rem;
+  --font-size-xl: 1.35rem;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 600;
+  --line-height: 1.45;
+
+  /* Surfaces */
+  --color-bg: #f1f5f9;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-surface-hover: #f1f5f9;
+  --color-border: #e2e8f0;
+  --color-border-strong: #cbd5e1;
+  --color-divider: #edf2f7;
+
+  /* Text */
+  --color-text: #0f172a;
+  --color-text-muted: #64748b;
+  --color-text-subtle: #94a3b8;
+  --color-text-inverse: #ffffff;
+
+  /* Focus / active accent */
+  --color-accent: #e11d48;
+  --color-accent-strong: #be123c;
+  --color-accent-soft: #fff1f4;
+  --color-accent-fill: rgb(225 29 72 / 0.12);
+  --color-accent-ring: rgb(225 29 72 / 0.32);
+
+  /* Primary action */
+  --color-action: #0f172a;
+  --color-action-hover: #1e293b;
+
+  /* Review / warning */
+  --color-warning: #f59e0b;
+  --color-warning-soft: #fffbeb;
+  --color-warning-text: #92400e;
+
+  /* Success / approved */
+  --color-success: #10b981;
+  --color-success-soft: #ecfdf5;
+  --color-success-text: #065f46;
+
+  /* Error / rejected */
+  --color-danger: #dc2626;
+  --color-danger-soft: #fef2f2;
+  --color-danger-text: #991b1b;
+
+  /* Neutral overlays on the page image */
+  --color-overlay-border: rgb(15 23 42 / 0.35);
+  --color-overlay-fill: rgb(15 23 42 / 0.04);
+  --color-overlay-hover: rgb(225 29 72 / 0.08);
+
+  /* Source indicators */
+  --source-printed: #3b82f6;
+  --source-printed-soft: #eff6ff;
+  --source-handwritten: #16a34a;
+  --source-handwritten-soft: #f0fdf4;
+  --source-sticker: #9333ea;
+  --source-sticker-soft: #faf5ff;
+  --source-phone: #ea580c;
+  --source-phone-soft: #fff7ed;
+
+  /* Geometry */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+  --border-width: 1px;
+  --outline-width: 2px;
+
+  /* Elevation */
+  --shadow-sm: 0 1px 2px rgb(15 23 42 / 0.06);
+  --shadow-md: 0 4px 14px rgb(15 23 42 / 0.08);
+  --shadow-lg: 0 10px 30px rgb(15 23 42 / 0.12);
+  --focus-ring: 0 0 0 3px var(--color-accent-ring);
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* Layout */
+  --toolbar-height: 64px;
+  --inspector-width: clamp(360px, 36vw, 560px);
+  --snippet-height: 180px;
+  --source-bar-width: 4px;
+  --cell-min-width: 120px;
+
+  /* Motion */
+  --transition-fast: 120ms ease;
+}

@@ -1,52 +1,31 @@
-import { useState, type FormEvent } from "react";
+import type { FormEvent } from "react";
 
-import { TEXT_FIELDS, type GroundedField, type TextFieldName } from "../review/groundedFields";
+import { buildFieldPatch, fieldText, type FieldEdits } from "../review/drafts";
+import { STATUS_LABELS, type GroundedField, type TextFieldName } from "../review/groundedFields";
 import type { EditableRecordStatus, RecordResponse, RecordUpdatePayload } from "../types/record";
 
 export interface ReviewFormProps {
   record: RecordResponse;
   fields: readonly GroundedField[];
+  /** Unsaved edits for this record, shared with the records table. */
+  edits: FieldEdits | undefined;
   activeKey: string | null;
   saving: boolean;
   error: string | null;
   onFocusField(key: string | null): void;
   onHoverField(key: string | null): void;
   registerInput(key: string, element: HTMLInputElement | null): void;
+  onEdit(field: TextFieldName, text: string): void;
   onSave(payload: RecordUpdatePayload): void;
 }
 
-type Draft = Record<TextFieldName, string>;
+const LTR_FIELDS: ReadonlySet<TextFieldName> = new Set(["id_number", "received_date"]);
 
-function draftFrom(record: RecordResponse): Draft {
-  return Object.fromEntries(TEXT_FIELDS.map((name) => [name, record[name].value ?? ""])) as Draft;
-}
-
-/** Only changed fields are sent; an emptied field is sent as an explicit null. */
-export function buildFieldPatch(record: RecordResponse, draft: Draft): RecordUpdatePayload {
-  const payload: RecordUpdatePayload = {};
-  for (const name of TEXT_FIELDS) {
-    const next = draft[name].trim();
-    if (next !== (record[name].value ?? "")) payload[name] = next === "" ? null : next;
-  }
-  return payload;
-}
-
-const STATUS_LABELS: Readonly<Record<RecordResponse["status"], string>> = {
-  pending_review: "ממתין לבדיקה",
-  approved: "מאושר",
-  rejected: "נדחה",
-  extraction_failed: "החילוץ נכשל",
-};
-
-/**
- * Review form. Remount it (key on id + updated_at) to reset the draft after a save.
- * Focus and hover on any input report the field key so the viewer and snippet can follow.
- */
+/** Detail form of the active record. Focus and hover report the field key so the viewer and snippet follow. */
 export function ReviewForm(props: ReviewFormProps) {
-  const { record, fields, activeKey, saving, error, onFocusField, onHoverField, registerInput, onSave } = props;
-  const [draft, setDraft] = useState<Draft>(() => draftFrom(record));
+  const { record, fields, edits, activeKey, saving, error, onFocusField, onHoverField, registerInput, onEdit, onSave } = props;
   const locked = record.status === "approved";
-  const patch = buildFieldPatch(record, draft);
+  const patch = buildFieldPatch(record, edits);
   const dirty = Object.keys(patch).length > 0;
 
   function submit(event: FormEvent) {
@@ -59,60 +38,62 @@ export function ReviewForm(props: ReviewFormProps) {
   }
 
   return (
-    <form className="review-form" onSubmit={submit}>
+    <form className="card review-form" onSubmit={submit}>
       <p className="review-status">
         עמוד {record.page_number} · {STATUS_LABELS[record.status]}
         {record.requires_manual_review && " · דורש בדיקה ידנית"}
       </p>
-      {fields.map((field) => {
-        const id = `field-${field.key}`;
-        const textField = field.textField;
-        return (
-          <div
-            key={field.key}
-            className={`form-field${field.key === activeKey ? " active" : ""}`}
-            onMouseEnter={() => onHoverField(field.key)}
-            onMouseLeave={() => onHoverField(null)}
-          >
-            <label htmlFor={id}>
-              {field.label}
-              {!field.box && <span className="no-box-hint"> · אין מיקום חזותי זמין</span>}
-            </label>
-            <input
-              id={id}
-              ref={(element) => registerInput(field.key, element)}
-              className={`confidence-${field.confidence}`}
-              value={textField ? draft[textField] : (field.value ?? "")}
-              readOnly={!textField || locked}
-              placeholder={textField === "received_date" ? "YYYY-MM-DD" : undefined}
-              dir={textField && textField !== "first_name" && textField !== "last_name" && textField !== "sender" ? "ltr" : undefined}
-              onFocus={() => onFocusField(field.key)}
-              onBlur={() => onFocusField(null)}
-              onChange={(event) => {
-                if (textField) setDraft((current) => ({ ...current, [textField]: event.target.value }));
-              }}
-            />
-          </div>
-        );
-      })}
+      <div className="review-fields">
+        {fields.map((field) => {
+          const id = `field-${field.key}`;
+          const textField = field.textField;
+          return (
+            <div
+              key={field.key}
+              className={`form-field${field.key === activeKey ? " active" : ""}`}
+              onMouseEnter={() => onHoverField(field.key)}
+              onMouseLeave={() => onHoverField(null)}
+            >
+              <label htmlFor={id}>
+                {field.label}
+                {!field.box && <span className="no-box-hint"> · אין מיקום חזותי זמין</span>}
+              </label>
+              <input
+                id={id}
+                ref={(element) => registerInput(field.key, element)}
+                className={`confidence-${field.confidence}`}
+                value={textField ? fieldText(record, edits, textField) : (field.value ?? "")}
+                readOnly={!textField || locked}
+                placeholder={textField === "received_date" ? "YYYY-MM-DD" : undefined}
+                dir={!textField || LTR_FIELDS.has(textField) ? "ltr" : undefined}
+                onFocus={() => onFocusField(field.key)}
+                onBlur={() => onFocusField(null)}
+                onChange={(event) => {
+                  if (textField) onEdit(textField, event.target.value);
+                }}
+              />
+            </div>
+          );
+        })}
+      </div>
       {record.review_reasons.length > 0 && <p className="review-reasons">סיבות לבדיקה: {record.review_reasons.join(", ")}</p>}
-      {error && <p role="alert">{error}</p>}
+      {error && <p role="alert" className="alert">{error}</p>}
       <div className="form-actions">
-        <button type="submit" disabled={!dirty || saving || locked}>
+        <button type="submit" className="btn btn-primary" disabled={!dirty || saving || locked}>
           {saving ? "שומר…" : "שמירת תיקונים"}
         </button>
         {record.status === "pending_review" && (
           <>
-            <button type="button" disabled={saving || dirty} onClick={() => setStatus("approved")}>
+            <button type="button" className="btn btn-success" disabled={saving || dirty} onClick={() => setStatus("approved")}>
               אישור
             </button>
-            <button type="button" disabled={saving} onClick={() => setStatus("rejected")}>
+            <button type="button" className="btn btn-danger" disabled={saving} onClick={() => setStatus("rejected")}>
               דחייה
             </button>
           </>
         )}
         {record.status !== "pending_review" && (
-          <button type="button" disabled={saving} onClick={() => setStatus("pending_review")}>
+          <button type="button" className="btn" disabled={saving} onClick={() => setStatus("pending_review")}>
             החזרה לבדיקה
           </button>
         )}

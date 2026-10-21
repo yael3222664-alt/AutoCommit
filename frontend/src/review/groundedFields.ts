@@ -1,4 +1,4 @@
-import type { BoundingBox, ConfidenceLevel, RecordResponse, RecordUpdatePayload } from "../types/record";
+import type { BoundingBox, ConfidenceLevel, RecordResponse, RecordStatus, RecordUpdatePayload } from "../types/record";
 
 /** Single-value fields the review form can edit; matches the string fields of RecordUpdatePayload. */
 export const TEXT_FIELDS = ["first_name", "last_name", "id_number", "received_date", "sender"] as const;
@@ -73,4 +73,23 @@ export function getGroundedFields(record: RecordResponse): GroundedField[] {
     textField: null,
   }));
   return [...textFields, ...central, ...commitments];
+}
+
+export const CONFIDENCE_LABELS: Readonly<Record<ConfidenceLevel, string>> = {
+  high: "ביטחון גבוה",
+  medium: "ביטחון בינוני",
+  low: "ביטחון נמוך",
+};
+
+export const STATUS_LABELS: Readonly<Record<RecordStatus, string>> = {
+  pending_review: "ממתין לבדיקה",
+  approved: "מאושר",
+  rejected: "נדחה",
+  extraction_failed: "החילוץ נכשל",
+};
+
+/** Field-level review reasons are prefixed with the field name (e.g. "id_number_invalid_checksum"). */
+export function fieldNeedsAttention(field: GroundedField, reviewReasons: readonly string[]): boolean {
+  const name = field.key.split(".")[0] ?? field.key;
+  return field.confidence !== "high" || field.value === null || reviewReasons.some((reason) => reason.startsWith(`${name}_`));
 }

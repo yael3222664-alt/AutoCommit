@@ -258,7 +258,7 @@ describe("browser acceptance", () => {
     const edited = await getRecord(ids[1]!);
     expect(edited.last_name).toMatchObject({ value: "כהן", confidence: "high" });
     expect(edited.review_reasons).not.toContain("last_name_missing");
-    expect(await recordButton(1).textContent()).toContain("כהן");
+    await page.waitForFunction((id) => document.querySelector<HTMLInputElement>(`#cell-${id}-last_name`)?.value === "כהן", ids[1]!);
 
     await page.getByRole("button", { name: "אישור" }).click();
     await page.waitForFunction(() => document.querySelector(".review-status")?.textContent?.includes("מאושר"));
@@ -291,6 +291,39 @@ describe("browser acceptance", () => {
     expect(await page.locator(".snippet-label").textContent()).toBe("גורם שולח");
     expect(await page.locator('.overlay-box[aria-pressed="true"]').getAttribute("data-field")).toBe("sender");
     expect(await page.locator(".review-status").textContent()).toMatch(/^עמוד 3 /);
+  });
+
+  it("edits records inline in the table, follows the focused cell and batch-saves every pending record", async () => {
+    await page.focus(`#cell-${ids[2]}-first_name`);
+    await page.waitForFunction(() => document.querySelector(".review-status")?.textContent?.startsWith("עמוד 2 "));
+    await page.waitForFunction(() => document.querySelector(".snippet-label")?.textContent === "שם פרטי");
+    expect(await page.locator(".form-field.active label").first().textContent()).toContain("שם פרטי");
+
+    await page.fill(`#cell-${ids[2]}-first_name`, "רותם-בדיקה");
+    expect(await page.inputValue("#field-first_name")).toBe("רותם-בדיקה");
+    await page.fill(`#cell-${ids[3]}-first_name`, "מרים-בדיקה");
+    await page.waitForFunction(() => document.querySelector(".review-status")?.textContent?.startsWith("עמוד 3 "));
+    expect(await page.inputValue("#field-first_name")).toBe("מרים-בדיקה");
+    expect(await page.inputValue(`#cell-${ids[2]}-first_name`)).toBe("רותם-בדיקה");
+    await page.getByRole("button", { name: "שמירה (2)", exact: true }).click();
+    await page.getByRole("button", { name: "שמירה (0)", exact: true }).waitFor();
+    expect((await getRecord(ids[2]!)).first_name.value).toBe("רותם-בדיקה");
+    expect((await getRecord(ids[3]!)).first_name.value).toBe("מרים-בדיקה");
+
+    await page.fill(".toolbar-search", "מרים-בדיקה");
+    await page.waitForFunction(() => document.querySelectorAll(".record-row").length === 1);
+    expect(await page.inputValue(`#cell-${ids[3]}-first_name`)).toBe("מרים-בדיקה");
+    await page.fill(".toolbar-search", "");
+    await page.getByRole("button", { name: /^נשמרו/ }).click();
+    await page.waitForFunction(() => document.querySelectorAll(".record-row").length === 1);
+    expect(await page.locator(`#cell-${ids[1]}-last_name`).count()).toBe(1);
+    await page.getByRole("button", { name: /^הכול/ }).click();
+    await page.waitForFunction(() => document.querySelectorAll(".record-row").length === 3);
+
+    await page.getByRole("button", { name: "סגירת תצוגת המסמך" }).click();
+    expect(await page.locator(".document-viewer").count()).toBe(0);
+    await page.getByRole("button", { name: "הצגת המסמך" }).click();
+    await page.waitForSelector(".document-viewer");
   });
 
   it("keeps records, images, edits and approvals across a backend restart", async () => {

@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 
 import { useImage } from "../hooks/useImage";
-import type { BoundingBox } from "../types/record";
+import { CONFIDENCE_LABELS } from "../review/groundedFields";
+import type { BoundingBox, ConfidenceLevel } from "../types/record";
 import { getBoxValidationError, tryCropImage, type CropErrorCode } from "../utils/cropHelper";
 
 export const NO_LOCATION_TEXT = "אין מיקום חזותי זמין";
@@ -25,6 +26,9 @@ export interface SnippetPreviewProps {
   zoom?: number;
   /** Normalized padding added around the box on every side. */
   padding?: number;
+  /** What the extraction read for this field, before any manual edit. */
+  reading?: string | null;
+  confidence?: ConfidenceLevel | null;
 }
 
 /** Magnified crop of one field, drawn with an offscreen canvas from the page image. */
@@ -34,6 +38,8 @@ export function SnippetPreview({
   label = null,
   zoom = DEFAULT_SNIPPET_ZOOM,
   padding = DEFAULT_SNIPPET_PADDING,
+  reading = null,
+  confidence = null,
 }: SnippetPreviewProps) {
   const boxError = box ? getBoxValidationError(box) : null;
   const canCrop = box !== null && boxError === null && src !== null;
@@ -54,12 +60,23 @@ export function SnippetPreview({
   else body = <img className="snippet-image" src={crop.dataUrl} width={crop.width} height={crop.height} alt={label ?? ""} />;
 
   return (
-    <section className="snippet-preview" aria-live="polite">
-      <header className="snippet-header">
-        <span>תצוגה מוגדלת</span>
+    <section className="card snippet-preview" aria-live="polite">
+      <header className="card-header snippet-header">
+        <span className="snippet-title">
+          תצוגה מוגדלת
+          <span className="snippet-zoom">חיתוך ×{zoom}</span>
+        </span>
         {label && <span className="snippet-label">{label}</span>}
       </header>
       <div className="snippet-body">{body}</div>
+      {label && (
+        <footer className="snippet-meta">
+          <span className="snippet-reading">
+            המנוע קרא: <bdi>{reading ?? "—"}</bdi>
+          </span>
+          {confidence && <span className={`badge confidence-badge confidence-${confidence}`}>{CONFIDENCE_LABELS[confidence]}</span>}
+        </footer>
+      )}
     </section>
   );
 }
