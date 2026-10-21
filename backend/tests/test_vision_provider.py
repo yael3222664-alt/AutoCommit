@@ -178,7 +178,10 @@ def test_client_errors_are_not_retried():
 
 
 def test_retry_delay_is_capped():
-    responses = [httpx.Response(429, headers={"retry-after": "3600"}, json={}), httpx.Response(200, json=_gemini_response())]
+    responses = [
+        httpx.Response(429, headers={"retry-after": "3600"}, json={}),
+        httpx.Response(200, json=_gemini_response()),
+    ]
     run, _, delays = _call_with_retries(responses)
     asyncio.run(run())
     assert delays == [30.0]

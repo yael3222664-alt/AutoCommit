@@ -12,7 +12,6 @@ error to exercise page-level failure isolation.
 """
 
 import argparse
-import json
 import os
 from pathlib import Path
 
@@ -86,13 +85,13 @@ def serve(port: int, database: Path, fail_pages: set[int], page_images: bool = T
     from backend.app.main import app
     from backend.app.services.document_pipeline import DocumentPipeline
     from backend.app.services.extractor_service import extract_record_from_image
-    from backend.tests.fakes import FakeVisionProvider, failing_provider
+    from backend.tests.fakes import FakeVisionProvider, failing_provider, provider_json
 
     async def extractor(image_bytes: bytes, page_number: int):
         if page_number in fail_pages:
             provider = failing_provider()
         else:
-            provider = FakeVisionProvider(response=json.dumps(page_payload(page_number)))
+            provider = FakeVisionProvider(response=provider_json(page_payload(page_number)))
         return await extract_record_from_image(image_bytes, page_number, provider=provider)
 
     pipeline = DocumentPipeline(extractor, max_concurrency=3)

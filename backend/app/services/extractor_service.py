@@ -44,10 +44,10 @@ explicitly visible, is missing, ambiguous, or unreadable, set "value" to null, \
    - "high": clearly visible, readable, and unambiguous.
    - "medium": readable with some uncertainty.
    - "low": missing, unreadable, ambiguous, or invalid.
-3. Visual grounding: for every value you return, provide "box" with normalized \
-coordinates ymin, xmin, ymax, xmax as floats between 0.0 and 1.0, relative to the image \
-height (y) and width (x), with ymin <= ymax and xmin <= xmax. The box must tightly \
-enclose the text the value was read from.
+3. Visual grounding: for every value you return, provide "box" with coordinates \
+ymin, xmin, ymax, xmax as integers from 0 to 1000, relative to the image height (y) and \
+width (x), where 0 is the top/left edge and 1000 the bottom/right edge, with ymin <= ymax \
+and xmin <= xmax. The box must tightly enclose the text the value was read from.
 4. Transcribe values exactly as written. Do not translate, reformat, correct, or complete them.
 5. Patient identity: "first_name" and "last_name" of the patient, and "id_number": the \
 patient's Israeli ID number (תעודת זהות, up to 9 digits) exactly as written.
@@ -131,6 +131,10 @@ RESPONSE_SCHEMA: dict[str, Any] = _object(
     }
 )
 
+# The model reports boxes on a 0-1000 grid (Gemini's native grounding scale); records use 0.0-1.0.
+PROVIDER_BOX_SCALE = 1000
+_BOX_KEYS = ("ymin", "xmin", "ymax", "xmax")
+
 _CODE_FENCE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL)
 
 
@@ -152,6 +156,26 @@ def _parse_payload(raw_text: str) -> dict[str, Any]:
         raise ExtractionError(
             f"Vision provider response is missing fields: {', '.join(missing)}", "malformed_response"
         )
+    return payload
+
+
+def _rescale_box(raw: Any) -> Any:
+    """Convert numeric coordinates to 0.0-1.0; anything else is left for strict validation to reject."""
+    if not isinstance(raw, dict):
+        return raw
+    return {
+        key: value / PROVIDER_BOX_SCALE
+        if key in _BOX_KEYS and isinstance(value, (int, float)) and not isinstance(value, bool)
+        else value
+        for key, value in raw.items()
+    }
+
+
+def _rescale_boxes(payload: dict[str, Any]) -> dict[str, Any]:
+    for value in payload.values():
+        for item in value if isinstance(value, list) else [value]:
+            if isinstance(item, dict) and "box" in item:
+                item["box"] = _rescale_box(item["box"])
     return payload
 
 
@@ -184,4 +208,4 @@ async def extract_record_from_image(
     except VisionProviderError as exc:
         raise ExtractionError(f"Vision provider failed: {exc}", "provider_error") from exc
 
-    return finalize_record(_parse_payload(raw_text), page_number)
+    return finalize_record(_rescale_boxes(_parse_payload(raw_text)), page_number)

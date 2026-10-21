@@ -12,7 +12,14 @@ from backend.app.services.extractor_service import (
     extract_record_from_image,
 )
 from backend.app.services.vision_provider import VisionProviderError, VisionProviderTimeoutError
-from backend.tests.fakes import JPEG_BYTES, PNG_BYTES, FakeVisionProvider, failing_provider, valid_payload
+from backend.tests.fakes import (
+    JPEG_BYTES,
+    PNG_BYTES,
+    FakeVisionProvider,
+    failing_provider,
+    provider_json,
+    valid_payload,
+)
 
 
 def _extract(provider, image=PNG_BYTES, page_number=1):
@@ -45,14 +52,14 @@ def test_provider_receives_image_prompt_and_schema():
 
 
 def test_code_fenced_json_is_accepted():
-    provider = FakeVisionProvider(response="```json\n" + json.dumps(valid_payload()) + "\n```")
+    provider = FakeVisionProvider(response="```json\n" + provider_json(valid_payload()) + "\n```")
     assert _extract(provider).first_name.value == "דנה"
 
 
 def test_validation_runs_on_model_output():
     payload = valid_payload()
     payload["id_number"]["value"] = "123456789"
-    record = _extract(FakeVisionProvider(response=json.dumps(payload)))
+    record = _extract(FakeVisionProvider(response=provider_json(payload)))
 
     assert record.requires_manual_review is True
     assert "id_number_invalid" in record.review_reasons
@@ -128,3 +135,38 @@ def test_missing_provider_configuration_is_a_technical_failure(monkeypatch):
     with pytest.raises(ExtractionError) as exc_info:
         _extract(None)
     assert exc_info.value.code == "provider_not_configured"
+
+
+def test_boxes_are_converted_from_the_model_grid_to_normalized_coordinates():
+    payload = json.loads(provider_json(valid_payload()))
+    payload["first_name"]["box"] = {"ymin": 813, "xmin": 709, "ymax": 827, "xmax": 1000}
+    record = _extract(FakeVisionProvider(response=json.dumps(payload)), page_number=2)
+
+    box = record.first_name.box
+    assert (box.ymin, box.xmin, box.ymax, box.xmax, box.page_number) == (0.813, 0.709, 0.827, 1.0, 2)
+    assert record.central_numbers[0].box.ymax == pytest.approx(0.2)
+    assert not any(reason.endswith("_invalid_box") for reason in record.review_reasons)
+
+
+@pytest.mark.parametrize(
+    "box",
+    [
+        {"ymin": 100, "xmin": 100, "ymax": 1200, "xmax": 200},
+        {"ymin": "100", "xmin": 100, "ymax": 200, "xmax": 200},
+        {"ymin": True, "xmin": 100, "ymax": 200, "xmax": 200},
+        [100, 100, 200, 200],
+    ],
+)
+def test_out_of_grid_or_non_numeric_boxes_are_rejected_not_corrected(box):
+    payload = json.loads(provider_json(valid_payload()))
+    payload["first_name"]["box"] = box
+    record = _extract(FakeVisionProvider(response=json.dumps(payload)))
+
+    assert record.first_name.value == "דנה"
+    assert record.first_name.box is None
+    assert "first_name_invalid_box" in record.review_reasons
+
+
+def test_prompt_asks_for_the_grid_that_is_converted():
+    assert "integers from 0 to 1000" in SYSTEM_PROMPT
+    assert extractor_service.PROVIDER_BOX_SCALE == 1000

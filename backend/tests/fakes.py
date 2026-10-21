@@ -25,9 +25,21 @@ def valid_payload() -> dict:
     }
 
 
+def provider_json(payload: dict) -> str:
+    """Serialize a record payload as the vision model returns it: boxes on a 0-1000 grid."""
+    def scale(item):
+        if isinstance(item, dict) and isinstance(item.get("box"), dict):
+            return {**item, "box": {k: round(v * 1000, 6) for k, v in item["box"].items()}}
+        return item
+
+    return json.dumps(
+        {k: [scale(i) for i in v] if isinstance(v, list) else scale(v) for k, v in payload.items()}
+    )
+
+
 class FakeVisionProvider:
     def __init__(self, response=None, error: Exception | None = None):
-        self.response = json.dumps(valid_payload()) if response is None else response
+        self.response = provider_json(valid_payload()) if response is None else response
         self.error = error
         self.calls: list[dict] = []
 

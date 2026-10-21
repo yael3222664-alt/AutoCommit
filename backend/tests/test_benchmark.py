@@ -8,7 +8,7 @@ from backend.app.services.validator_service import finalize_record
 from backend.benchmark import run
 from backend.benchmark.ground_truth import GroundTruth, TruthBox, TruthPage
 from backend.benchmark.scoring import BoxOutcome, Outcome, iou, normalize_value, score_page, summarize
-from backend.tests.fakes import FakeVisionProvider, failing_provider
+from backend.tests.fakes import FakeVisionProvider, failing_provider, provider_json
 from backend.tests.integration_server import FIELD_BOXES, page_payload, write_sample_pdf
 
 
@@ -133,7 +133,7 @@ async def fake_extractor(image: bytes, page_number: int):
     if page_number == 2:
         provider = failing_provider()
     else:
-        provider = FakeVisionProvider(response=json.dumps(page_payload(page_number)))
+        provider = FakeVisionProvider(response=provider_json(page_payload(page_number)))
     return await extract_record_from_image(image, page_number, provider=provider)
 
 
