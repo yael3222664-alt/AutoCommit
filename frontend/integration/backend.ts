@@ -20,6 +20,8 @@ export interface BackendOptions {
   database: string;
   port?: number;
   failPages?: number[];
+  /** false simulates a backend from before page images were stored. */
+  pageImages?: boolean;
 }
 
 export function freePort(): Promise<number> {
@@ -60,10 +62,11 @@ function stopProcess(child: ChildProcess): Promise<void> {
   });
 }
 
-export async function startBackend({ database, port, failPages = [] }: BackendOptions): Promise<BackendProcess> {
+export async function startBackend({ database, port, failPages = [], pageImages = true }: BackendOptions): Promise<BackendProcess> {
   const resolvedPort = port ?? (await freePort());
   const args = ["-m", SERVER_MODULE, "--port", String(resolvedPort), "--database", database];
   if (failPages.length > 0) args.push("--fail-pages", ...failPages.map(String));
+  if (!pageImages) args.push("--no-page-images");
   const child = spawn(PYTHON, args, { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"] });
   const output = collectOutput(child);
   const baseUrl = `http://127.0.0.1:${resolvedPort}`;

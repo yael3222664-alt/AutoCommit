@@ -55,7 +55,7 @@ export function App() {
         </nav>
         <section className="record-detail">
           {active.error && <p role="alert">{active.error.message}</p>}
-          {active.record ? <RecordReview record={active.record} /> : <p>בחרו רשומה מהרשימה</p>}
+          {active.record ? <RecordReview key={active.record.id} record={active.record} /> : <p>בחרו רשומה מהרשימה</p>}
         </section>
       </div>
     </main>

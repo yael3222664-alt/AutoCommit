@@ -84,8 +84,9 @@ class RecordService:
 
         Idempotent per (document_id, page_number): an existing page is kept unchanged unless
         it is an `extraction_failed` page with no manual edits, in which case the new result
-        replaces it. Manual corrections and review decisions are never overwritten. Any
-        error rolls back the whole batch.
+        replaces it. A kept page that has no page image gets the new `image_path` only.
+        Manual corrections and review decisions are never overwritten. Any error rolls back
+        the whole batch.
         """
         now = _utcnow()
         try:
@@ -102,6 +103,10 @@ class RecordService:
                     self._session.add(row)
                 elif row.status == RecordStatus.extraction_failed.value and not row.edits:
                     self._apply(row, record, now)
+                elif record.image_path and not row.data.get("image_path"):
+                    # Link a page image to a record saved without one; nothing else changes.
+                    row.data = {**row.data, "image_path": record.image_path}
+                    row.updated_at = now
                 ids.append(row.id)
             self._session.flush()
             self._session.commit()

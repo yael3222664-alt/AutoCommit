@@ -367,8 +367,15 @@ describe("end-to-end record lifecycle", () => {
     store.clearSelection();
   });
 
+  async function pageImage(id: string): Promise<string> {
+    const response = await fetch(recordImageUrl(id, backend.baseUrl));
+    expect(response.status).toBe(200);
+    return Buffer.from(await response.arrayBuffer()).toString("base64");
+  }
+
   it("persists records across a server restart and keeps edits on re-upload", async () => {
     const snapshot = await rawJson<RecordListResponse>("/api/records");
+    const imagesBefore = await Promise.all([1, 2, 3].map((page) => pageImage(ids[page]!)));
     await backend.stop();
 
     // While the server is down, the store reports a network error but keeps cached records.
@@ -381,6 +388,7 @@ describe("end-to-end record lifecycle", () => {
     backend = await startBackend({ database, port: backend.port }); // no failing pages this time
     expect(await rawJson<RecordListResponse>("/api/records")).toEqual(snapshot);
     expect(await rawJson<RecordResponse>(`/api/records/${ids[1]}`)).toEqual(byPage(snapshot.items, 1));
+    expect(await Promise.all([1, 2, 3].map((page) => pageImage(ids[page]!)))).toEqual(imagesBefore);
     await store.loadRecords();
     expect(store.getState().list).toMatchObject({ status: "success", error: null, total: 3 });
 
@@ -396,5 +404,63 @@ describe("end-to-end record lifecycle", () => {
 
     const state = await waitForState(store, (s) => s.list.status === "success" && byPage(s.list.items, 2).status === "pending_review");
     expect(state.list.total).toBe(3);
+  });
+});
+
+describe("records saved before page images existed", () => {
+  let workDir: string;
+  let samplePdf: File;
+  let backend: BackendProcess;
+
+  beforeAll(async () => {
+    workDir = await mkdtemp(path.join(tmpdir(), "autocommit-legacy-"));
+    const pdfPath = path.join(workDir, "sample.pdf");
+    await writeSamplePdf(pdfPath);
+    samplePdf = new File([await readFile(pdfPath)], "sample.pdf", { type: "application/pdf" });
+  });
+
+  afterAll(async () => {
+    await backend?.stop();
+    if (workDir) await rm(workDir, { recursive: true, force: true });
+  });
+
+  it("keeps edits and decisions, then links images on re-upload", async () => {
+    const database = path.join(workDir, "legacy.db");
+    backend = await startBackend({ database, pageImages: false });
+    const client = createApiClient({ baseUrl: backend.baseUrl });
+    const legacy = await client.uploadDocuments(samplePdf);
+    expect(legacy.map((r) => r.image_path)).toEqual([null, null, null]);
+    const [page1, page2] = [byPage(legacy, 1), byPage(legacy, 2)];
+    expect((await fetch(recordImageUrl(page1.id, backend.baseUrl))).status).toBe(404);
+
+    const edited = await client.patchRecord(page1.id, { last_name: "כהן" });
+    const approved = await client.patchRecord(edited.id, { status: "approved" });
+    const rejected = await client.patchRecord(page2.id, { status: "rejected" });
+    await backend.stop();
+
+    backend = await startBackend({ database, port: backend.port }); // current version: images enabled
+    const restarted = createApiClient({ baseUrl: backend.baseUrl });
+    expect(await restarted.fetchRecordById(page1.id)).toEqual(approved); // legacy record still readable
+
+    const reuploaded = await restarted.uploadDocuments(samplePdf);
+    expect(reuploaded.map((r) => r.id)).toEqual(legacy.map((r) => r.id));
+    const strip = (record: RecordResponse) => ({ ...record, image_path: null, updated_at: "" });
+    expect(strip(byPage(reuploaded, 1))).toEqual(strip(approved));
+    expect(strip(byPage(reuploaded, 2))).toEqual(strip(rejected));
+    for (const record of reuploaded) {
+      expect(record.image_path).toBe(`${record.document_id}/${record.page_number}.png`);
+      const response = await fetch(recordImageUrl(record.id, backend.baseUrl));
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("image/png");
+    }
+  });
+
+  it("never serves files outside the image store", async () => {
+    for (const hostile of ["..%2F..%2Fetc%2Fpasswd", "%2e%2e", "..", "missing"]) {
+      const response = await fetch(`${backend.baseUrl}/api/records/${hostile}/image`);
+      expect(response.status, hostile).toBe(404);
+      const body = await response.text();
+      expect(body).not.toMatch(/root:|\/home\/|\/etc\//);
+    }
   });
 });

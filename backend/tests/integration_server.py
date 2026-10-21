@@ -7,6 +7,8 @@ error to exercise page-level failure isolation.
 
     python -m backend.tests.integration_server --port 8765 --database /tmp/e2e.db --fail-pages 2
     python -m backend.tests.integration_server --write-sample-pdf /tmp/sample.pdf
+
+--no-page-images stores no page images, like versions before image serving existed.
 """
 
 import argparse
@@ -73,7 +75,7 @@ def write_sample_pdf(path: Path) -> None:
         document.save(path)
 
 
-def serve(port: int, database: Path, fail_pages: set[int]) -> None:
+def serve(port: int, database: Path, fail_pages: set[int], page_images: bool = True) -> None:
     # Settings and the engine are cached on first import, so configure the database first.
     os.environ["DATABASE_URL"] = f"sqlite:///{database}"
     os.environ["PAGE_IMAGE_DIR"] = str(database.parent / f"{database.stem}-pages")
@@ -95,6 +97,15 @@ def serve(port: int, database: Path, fail_pages: set[int]) -> None:
 
     pipeline = DocumentPipeline(extractor, max_concurrency=3)
     app.dependency_overrides[routes.get_document_pipeline] = lambda: pipeline
+    if not page_images:
+        from backend.app.services.page_image_store import PageImageError, PageImageStore
+
+        class NoPageImages(PageImageStore):
+            def save(self, document_id: str, page_number: int, image_bytes: bytes) -> str:
+                raise PageImageError("page images disabled")
+
+        store = NoPageImages(Path(os.environ["PAGE_IMAGE_DIR"]))
+        app.dependency_overrides[routes.get_page_image_store] = lambda: store
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
@@ -103,6 +114,7 @@ def main() -> None:
     parser.add_argument("--port", type=int)
     parser.add_argument("--database", type=Path)
     parser.add_argument("--fail-pages", type=int, nargs="*", default=[])
+    parser.add_argument("--no-page-images", action="store_true")
     parser.add_argument("--write-sample-pdf", type=Path)
     args = parser.parse_args()
 
@@ -111,7 +123,7 @@ def main() -> None:
         return
     if args.port is None or args.database is None:
         parser.error("--port and --database are required to serve")
-    serve(args.port, args.database, set(args.fail_pages))
+    serve(args.port, args.database, set(args.fail_pages), page_images=not args.no_page_images)
 
 
 if __name__ == "__main__":

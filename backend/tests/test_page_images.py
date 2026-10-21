@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.api import routes
 from backend.app.main import app
-from backend.app.schemas import ExtractedRecord, FieldValue
+from backend.app.schemas import ExtractedRecord, FieldValue, RecordUpdateSchema
 from backend.app.services.document_pipeline import DocumentPipeline
 from backend.app.services.page_image_store import PageImageError, PageImageStore
 from backend.app.services.record_service import RecordService
@@ -118,3 +118,59 @@ def test_image_endpoint_404s(client, db_session, page_image_store):
     [deleted] = RecordService(db_session).save_records([_record(1).model_copy(update={"image_path": key})], "c" * 64)
     page_image_store.resolve(key)[0].unlink()
     assert client.get(f"/api/records/{deleted}/image").status_code == 404
+
+
+def test_resolve_refuses_symlinks_leaving_the_store(tmp_path):
+    (tmp_path / "secret.png").write_bytes(PNG_BYTES)
+    store = PageImageStore(tmp_path / "pages")
+    (tmp_path / "pages" / DOC_ID).mkdir(parents=True)
+    (tmp_path / "pages" / DOC_ID / "1.png").symlink_to(tmp_path / "secret.png")
+    assert store.resolve(f"{DOC_ID}/1.png") is None
+
+
+@pytest.mark.parametrize(
+    "image_path", ["../secret.png", "/etc/passwd", f"{DOC_ID}/../../secret.png", "x/../../../etc/hosts"]
+)
+def test_tampered_image_path_is_not_served(client, db_session, tmp_path, image_path):
+    (tmp_path / "secret.png").write_bytes(PNG_BYTES)
+    tampered = _record(1).model_copy(update={"image_path": image_path})
+    [record_id] = RecordService(db_session).save_records([tampered], DOC_ID)
+    response = client.get(f"/api/records/{record_id}/image")
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Page image not available"}
+
+
+@pytest.mark.parametrize(
+    "path", ["/api/records/..%2F..%2Fetc%2Fpasswd/image", "/api/records/%2e%2e/image", "/api/records/ /image"]
+)
+def test_hostile_record_ids_return_404_without_paths(client, path):
+    response = client.get(path)
+    assert response.status_code == 404
+    assert "etc" not in response.text and "/home" not in response.text
+
+
+def test_reupload_links_image_to_legacy_record_without_touching_edits(client, db_session):
+    pdf = _pdf(2)
+    document_id = hashlib.sha256(pdf).hexdigest()
+    service = RecordService(db_session)
+    legacy_ids = service.save_records([_record(1), _record(2)], document_id)  # saved before images existed
+    edited = service.update_record(legacy_ids[0], RecordUpdateSchema(first_name="Dana", status="rejected"))
+    assert edited.image_path is None
+
+    records = client.post("/api/documents/upload", files={"file": ("d.pdf", pdf, "application/pdf")}).json()
+
+    assert [r["id"] for r in records] == legacy_ids
+    assert records[0]["first_name"]["value"] == "Dana" and records[0]["status"] == "rejected"
+    assert [r["image_path"] for r in records] == [f"{document_id}/1.png", f"{document_id}/2.png"]
+    assert client.get(f"/api/records/{legacy_ids[0]}/image").status_code == 200
+    assert {k: v for k, v in records[0].items() if k not in ("image_path", "updated_at")} == {
+        k: v for k, v in edited.model_dump(mode="json").items() if k not in ("image_path", "updated_at")
+    }
+
+
+def test_reupload_keeps_an_existing_image_link(client, db_session, page_image_store):
+    pdf = _pdf(1)
+    document_id = hashlib.sha256(pdf).hexdigest()
+    first = client.post("/api/documents/upload", files={"file": ("d.pdf", pdf, "application/pdf")}).json()[0]
+    second = client.post("/api/documents/upload", files={"file": ("d.pdf", pdf, "application/pdf")}).json()[0]
+    assert second == first and second["image_path"] == f"{document_id}/1.png"
