@@ -369,3 +369,76 @@ def finalize_record(raw: Mapping[str, Any], page_number: int) -> ExtractedRecord
         requires_manual_review=bool(reasons),
         review_reasons=reasons,
     )
+
+
+MANUAL_TEXT_FIELDS = ("first_name", "last_name", "id_number", "received_date", "sender")
+
+
+class InvalidManualValueError(ValueError):
+    """A manually supplied value cannot be stored (e.g. an unparseable date)."""
+
+
+def validate_manual_field(
+    name: str, value: Optional[str], box: Optional[BoundingBox] = None
+) -> tuple[FieldValue, list[str]]:
+    """Validate a human correction with the same rules as extraction.
+
+    Returns the field (keeping its original box) and the review reasons it still raises.
+    A valid correction gets high confidence (fuzzy sender matches keep medium).
+    """
+    if name not in MANUAL_TEXT_FIELDS:
+        raise ValueError(f"{name} is not a manually editable text field")
+    if value is None or not value.strip():
+        return FieldValue(box=box), [f"{name}_missing"]
+    value = value.strip()
+
+    if name == "id_number":
+        normalized, valid = validate_israeli_id(value)
+        if not valid:
+            return FieldValue(value=normalized, confidence=ConfidenceLevel.low, box=box, raw_value=value), [
+                "id_number_invalid"
+            ]
+        return FieldValue(value=normalized, confidence=ConfidenceLevel.high, box=box, raw_value=value), []
+
+    if name == "received_date":
+        iso = normalize_date(value)
+        if iso is None:
+            raise InvalidManualValueError(f"received_date {value!r} is not a valid date")
+        return FieldValue(value=iso, confidence=ConfidenceLevel.high, box=box, raw_value=value), []
+
+    if name == "sender":
+        canonical, match_confidence = normalize_sender(value)
+        if match_confidence is ConfidenceLevel.low:
+            return FieldValue(value=canonical, confidence=ConfidenceLevel.low, box=box, raw_value=value), [
+                "sender_unrecognized"
+            ]
+        return FieldValue(value=canonical, confidence=match_confidence, box=box, raw_value=value), []
+
+    return FieldValue(value=value, confidence=ConfidenceLevel.high, box=box), []
+
+
+def mandatory_field_issues(record: ExtractedRecord) -> list[str]:
+    """Reasons a record cannot be approved: mandatory fields missing or failing validation."""
+    issues = []
+    for name in ("first_name", "last_name"):
+        if getattr(record, name).value is None:
+            issues.append(f"{name}_missing")
+
+    id_value = record.id_number.value
+    if id_value is None:
+        issues.append("id_number_missing")
+    elif validate_israeli_id(id_value) != (id_value, True):
+        issues.append("id_number_invalid")
+
+    date_value = record.received_date.value
+    if date_value is None:
+        issues.append("received_date_missing")
+    elif normalize_date(date_value) != date_value:
+        issues.append("received_date_invalid")
+
+    sender_value = record.sender.value
+    if sender_value is None:
+        issues.append("sender_missing")
+    elif sender_value not in SENDING_ENTITIES:
+        issues.append("sender_unrecognized")
+    return issues

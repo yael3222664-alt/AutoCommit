@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-2.5-flash"
     GEMINI_API_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta"
 
+    DATABASE_URL: str = f"sqlite:///{BACKEND_DIR / 'data' / 'autocommit.db'}"
+
 
 @lru_cache
 def get_settings() -> Settings:

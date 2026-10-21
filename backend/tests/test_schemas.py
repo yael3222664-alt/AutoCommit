@@ -109,10 +109,15 @@ def test_extracted_record_round_trips_with_grounding():
     assert restored.first_name.box.page_number == 3
 
 
-def test_record_response_requires_id_and_created_at():
+def test_record_response_requires_audit_fields():
     with pytest.raises(ValidationError):
-        RecordResponse(**_empty_record().model_dump())
+        RecordResponse(**_empty_record().model_dump(), id="rec-1", created_at="2026-01-01T00:00:00Z")
     response = RecordResponse(
-        **_empty_record().model_dump(), id="rec-1", created_at="2026-01-01T00:00:00Z"
+        **_empty_record().model_dump(),
+        id="rec-1",
+        document_id="doc-1",
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
     )
     assert response.id == "rec-1"
+    assert response.document_id == "doc-1"
