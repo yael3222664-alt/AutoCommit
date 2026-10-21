@@ -201,16 +201,17 @@ def test_include_values_puts_values_in_report(tmp_path):
     assert "| form-a | 1 | last_name | missed | not_scored | – | כהן |  |" in markdown
 
 
-def test_draft_ground_truth_round_trip(tmp_path):
+def test_draft_ground_truth_round_trip(tmp_path, capsys):
     write_sample_pdf(tmp_path / "a.pdf")
     (tmp_path / "truth.json").write_text(json.dumps({"documents": [{"file": "a.pdf", "pages": []}]}))
     draft_path = tmp_path / "draft.json"
     args = [str(tmp_path / "truth.json"), "--draft-ground-truth", str(draft_path)]
-    assert run.main(args, extractor=fake_extractor) == 0
+    assert run.main(args, extractor=fake_extractor) == 1  # page 2 failed
+    assert "doc-01 page 2 (provider_error)" in capsys.readouterr().err
 
     draft = json.loads(draft_path.read_text(encoding="utf-8"))
     pages = draft["documents"][0]["pages"]
-    assert [p["page_number"] for p in pages] == [1, 2, 3]
+    assert [p["page_number"] for p in pages] == [1, 3]
     assert all(p["verified"] is False for p in pages)
     assert pages[0]["id_number"] == {"value": "012345674", "box": box("id_number")}
 

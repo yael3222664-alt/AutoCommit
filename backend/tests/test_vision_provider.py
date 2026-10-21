@@ -123,3 +123,67 @@ def test_timeouts_raise_timeout_error():
 
     with pytest.raises(VisionProviderTimeoutError):
         _call(handler)
+
+
+def _call_with_retries(responses, max_retries=3):
+    requests, delays = [], []
+
+    def handler(request):
+        requests.append(request)
+        return responses[len(requests) - 1]
+
+    async def sleep(seconds):
+        delays.append(seconds)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            provider = GeminiVisionProvider(
+                api_key="test-key", model="m", base_url="https://example.test/v1beta", timeout_seconds=5,
+                client=client, max_retries=max_retries, retry_base_delay_seconds=1.0, sleep=sleep,
+            )
+            return await provider.generate_json(
+                image_bytes=b"img", mime_type="image/png", system_prompt="s", user_prompt="u", response_schema=SCHEMA
+            )
+
+    return run, requests, delays
+
+
+def test_overload_and_rate_limit_responses_are_retried_with_backoff():
+    responses = [
+        httpx.Response(503, json={"error": {"message": "high demand"}}),
+        httpx.Response(429, headers={"retry-after": "7"}, json={}),
+        httpx.Response(200, json=_gemini_response()),
+    ]
+    run, requests, delays = _call_with_retries(responses)
+    assert asyncio.run(run()) == '{"ok": true}'
+    assert len(requests) == 3
+    assert delays == [1.0, 7.0]
+
+
+def test_retries_stop_after_the_limit_and_report_the_api_message():
+    responses = [httpx.Response(503, json={"error": {"message": "high demand"}})] * 3
+    run, requests, delays = _call_with_retries(responses, max_retries=2)
+    with pytest.raises(VisionProviderError, match="HTTP 503: high demand"):
+        asyncio.run(run())
+    assert len(requests) == 3
+    assert delays == [1.0, 2.0]
+
+
+def test_client_errors_are_not_retried():
+    responses = [httpx.Response(404, json={"error": {"message": "model not available"}})]
+    run, requests, delays = _call_with_retries(responses)
+    with pytest.raises(VisionProviderError, match="HTTP 404: model not available"):
+        asyncio.run(run())
+    assert len(requests) == 1 and delays == []
+
+
+def test_retry_delay_is_capped():
+    responses = [httpx.Response(429, headers={"retry-after": "3600"}, json={}), httpx.Response(200, json=_gemini_response())]
+    run, _, delays = _call_with_retries(responses)
+    asyncio.run(run())
+    assert delays == [30.0]
+
+
+def test_factory_passes_retry_setting():
+    provider = get_vision_provider(Settings(_env_file=None, GEMINI_API_KEY="k", VISION_MAX_RETRIES=5))
+    assert provider._max_retries == 5

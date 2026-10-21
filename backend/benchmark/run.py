@@ -10,7 +10,8 @@ Reports go to backend/data/benchmark/<timestamp>/ (git-ignored) by default.
 
 --draft-ground-truth writes the extractor's output in manifest format with every page marked
 "verified": false, as a starting point for annotation. Correct it by hand and set
-"verified": true; unverified pages are not scored.
+"verified": true; unverified pages are not scored. Pages whose extraction failed are left out of
+the draft and listed, and the command exits with status 1 so they can be retried.
 """
 
 import argparse
@@ -26,7 +27,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..app.config import get_settings
-from ..app.schemas import ExtractedRecord
+from ..app.schemas import ExtractedRecord, RecordStatus
 from ..app.services.document_pipeline import DocumentPipeline, build_failed_record
 from ..app.services.extractor_service import extract_record_from_image
 from ..app.services.ingestion_service import validate_upload
@@ -113,6 +114,7 @@ def draft_ground_truth(runs: list[DocumentRun]) -> GroundTruth:
                 ],
             )
             for r in run.records
+            if r.status is not RecordStatus.extraction_failed
         ]
         documents.append(TruthDocument(file=run.document.file, id=run.document.id, pages=pages))
     return GroundTruth(documents=documents)
@@ -160,7 +162,17 @@ def main(argv: Optional[list[str]] = None, extractor: Optional[PageExtractor] = 
     if args.draft_ground_truth is not None:
         draft = draft_ground_truth(runs).model_dump_json(indent=2, exclude_none=False)
         args.draft_ground_truth.write_text(draft, encoding="utf-8")
-        print(f"Draft ground truth written to {args.draft_ground_truth} (all pages unverified)")
+        failed = [
+            f"{run.label} page {r.page_number} ({', '.join(r.review_reasons)})"
+            for run in runs
+            for r in run.records
+            if r.status is RecordStatus.extraction_failed
+        ]
+        drafted = sum(len(run.records) for run in runs) - len(failed)
+        print(f"Draft ground truth written to {args.draft_ground_truth}: {drafted} pages, all unverified")
+        if failed:
+            print(f"Extraction failed, left out of the draft: {'; '.join(failed)}", file=sys.stderr)
+            return 1
         return 0
 
     pages, skipped = score_runs(runs, args.iou_threshold, args.include_unverified)

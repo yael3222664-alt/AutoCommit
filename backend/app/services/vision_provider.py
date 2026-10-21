@@ -1,6 +1,8 @@
 """Multimodal vision provider adapters."""
 
+import asyncio
 import base64
+from collections.abc import Awaitable, Callable
 from typing import Any, Optional, Protocol
 
 import httpx
@@ -46,6 +48,27 @@ def _to_gemini_schema(schema: Any) -> Any:
     return schema
 
 
+# Overload and rate-limit responses are worth retrying; other errors are not.
+RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+_MAX_RETRY_DELAY_SECONDS = 30.0
+
+
+def _api_error_message(response: httpx.Response) -> str:
+    """Google's error message (describes the request, never the image content)."""
+    try:
+        error = response.json().get("error")
+    except (ValueError, AttributeError):
+        return ""
+    message = error.get("message") if isinstance(error, dict) else None
+    return f": {message[:300]}" if isinstance(message, str) and message else ""
+
+
+def _retry_delay(response: httpx.Response, attempt: int, base_delay: float) -> float:
+    retry_after = response.headers.get("retry-after", "")
+    delay = float(retry_after) if retry_after.isdigit() else base_delay * 2**attempt
+    return min(delay, _MAX_RETRY_DELAY_SECONDS)
+
+
 class GeminiVisionProvider:
     def __init__(
         self,
@@ -55,8 +78,14 @@ class GeminiVisionProvider:
         base_url: str,
         timeout_seconds: float,
         client: Optional[httpx.AsyncClient] = None,
+        max_retries: int = 0,
+        retry_base_delay_seconds: float = 2.0,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._api_key = api_key
+        self._max_retries = max_retries
+        self._retry_base_delay = retry_base_delay_seconds
+        self._sleep = sleep
         self._url = f"{base_url.rstrip('/')}/models/{model}:generateContent"
         self._timeout = timeout_seconds
         self._client = client
@@ -92,27 +121,34 @@ class GeminiVisionProvider:
                 "responseSchema": _to_gemini_schema(response_schema),
             },
         }
-        headers = {"x-goog-api-key": self._api_key}
-        try:
-            if self._client is not None:
-                response = await self._client.post(
-                    self._url, json=body, headers=headers, timeout=self._timeout
-                )
-            else:
-                async with httpx.AsyncClient(timeout=self._timeout) as client:
-                    response = await client.post(self._url, json=body, headers=headers)
-        except httpx.TimeoutException as exc:
-            raise VisionProviderTimeoutError(f"Gemini request timed out: {type(exc).__name__}") from exc
-        except httpx.HTTPError as exc:
-            raise VisionProviderError(f"Gemini request failed: {type(exc).__name__}") from exc
-
-        if response.status_code != 200:
-            raise VisionProviderError(f"Gemini returned HTTP {response.status_code}")
+        response = await self._post_with_retries(body)
         try:
             data = response.json()
         except ValueError as exc:
             raise VisionProviderError("Gemini returned a non-JSON response body") from exc
         return _extract_text(data)
+
+    async def _post_with_retries(self, body: dict[str, Any]) -> httpx.Response:
+        for attempt in range(self._max_retries + 1):
+            response = await self._post(body)
+            if response.status_code == 200:
+                return response
+            if response.status_code not in RETRYABLE_STATUS_CODES or attempt == self._max_retries:
+                break
+            await self._sleep(_retry_delay(response, attempt, self._retry_base_delay))
+        raise VisionProviderError(f"Gemini returned HTTP {response.status_code}{_api_error_message(response)}")
+
+    async def _post(self, body: dict[str, Any]) -> httpx.Response:
+        headers = {"x-goog-api-key": self._api_key}
+        try:
+            if self._client is not None:
+                return await self._client.post(self._url, json=body, headers=headers, timeout=self._timeout)
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                return await client.post(self._url, json=body, headers=headers)
+        except httpx.TimeoutException as exc:
+            raise VisionProviderTimeoutError(f"Gemini request timed out: {type(exc).__name__}") from exc
+        except httpx.HTTPError as exc:
+            raise VisionProviderError(f"Gemini request failed: {type(exc).__name__}") from exc
 
 
 def _extract_text(data: Any) -> str:
@@ -153,4 +189,5 @@ def get_vision_provider(settings: Settings) -> VisionProvider:
         model=settings.GEMINI_MODEL,
         base_url=settings.GEMINI_API_BASE_URL,
         timeout_seconds=settings.VISION_TIMEOUT_SECONDS,
+        max_retries=settings.VISION_MAX_RETRIES,
     )

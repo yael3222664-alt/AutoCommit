@@ -40,7 +40,8 @@ verified ground truth.
 Keep documents, manifests and reports out of git: they contain medical data. `backend/data/` is
 git-ignored, e.g. `backend/data/benchmark-docs/`.
 
-1. Configure the provider in `.env` or the environment: `GEMINI_API_KEY`, optionally `GEMINI_MODEL`.
+1. Configure the provider in `.env` or the environment: `GEMINI_API_KEY`, optionally `GEMINI_MODEL`
+   (default `gemini-3.5-flash`) and `VISION_MAX_RETRIES` (default 3, for 429/5xx responses).
 2. Write a manifest listing the documents, or draft one from the extractor's output:
 
    ```bash
@@ -50,7 +51,9 @@ git-ignored, e.g. `backend/data/benchmark-docs/`.
 
    A minimal manifest for drafting is `{"documents": [{"file": "form1.pdf", "id": "form-1", "pages": []}]}`.
    Every drafted page is `"verified": false`. Correct the values and boxes against the page image and
-   set `"verified": true`; unverified pages are not scored.
+   set `"verified": true`; unverified pages are not scored. Pages whose extraction failed (e.g. the
+   model was overloaded after all retries) are left out of the draft and listed, and the command
+   exits with status 1; rerun it to fill them in.
 3. Run the benchmark:
 
    ```bash
