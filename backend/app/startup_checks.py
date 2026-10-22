@@ -40,7 +40,7 @@ def _settings_in_use(settings: Settings) -> list[str]:
     if settings.PAGE_IMAGE_STORAGE == "supabase":
         names.extend(_SUPABASE_SETTINGS)
     if settings.VISION_PROVIDER == "gemini":
-        names.append("GEMINI_API_KEY")
+        names.extend(("GEMINI_API_KEY", "GEMINI_API_KEYS"))
     if settings.AUTH_ENABLED:
         names.append("SESSION_SECRET")
     return names
@@ -72,7 +72,7 @@ def configuration_problems(settings: Settings) -> list[str]:
             problems.append("DB_SSL_MODE must be require, verify-ca or verify-full in production")
         if settings.PAGE_IMAGE_STORAGE != "supabase":
             problems.append("PAGE_IMAGE_STORAGE must be supabase in production")
-        if settings.VISION_PROVIDER == "gemini" and not _raw(settings.GEMINI_API_KEY):
+        if settings.VISION_PROVIDER == "gemini" and not settings.gemini_api_key_list():
             problems.append("GEMINI_API_KEY is required in production")
         dist = settings.FRONTEND_DIST_DIR
         if dist is None or not (dist / "index.html").is_file():

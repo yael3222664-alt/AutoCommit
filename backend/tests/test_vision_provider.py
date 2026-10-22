@@ -8,7 +8,9 @@ import pytest
 from backend.app.config import Settings
 from backend.app.services.vision_provider import (
     GeminiVisionProvider,
+    RotatingGeminiProvider,
     VisionProviderError,
+    VisionProviderQuotaError,
     VisionProviderNotConfiguredError,
     VisionProviderTimeoutError,
     get_vision_provider,
@@ -190,3 +192,96 @@ def test_retry_delay_is_capped():
 def test_factory_passes_retry_setting():
     provider = get_vision_provider(Settings(_env_file=None, GEMINI_API_KEY="k", VISION_MAX_RETRIES=5))
     assert provider._max_retries == 5
+
+
+def _provider(handler):
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return GeminiVisionProvider(
+        api_key="k",
+        model="m",
+        base_url="https://example.test/v1beta",
+        timeout_seconds=5,
+        client=client,
+    )
+
+
+def _generate(provider):
+    return asyncio.run(
+        provider.generate_json(
+            image_bytes=b"i",
+            mime_type="image/png",
+            system_prompt="s",
+            user_prompt="u",
+            response_schema=SCHEMA,
+        )
+    )
+
+
+def test_429_raises_quota_error():
+    with pytest.raises(VisionProviderQuotaError):
+        _generate(_provider(lambda request: httpx.Response(429, json={})))
+
+
+def test_rotation_fails_over_to_next_key():
+    calls = {"first": 0, "second": 0}
+
+    def first(request):
+        calls["first"] += 1
+        return httpx.Response(429, json={})
+
+    def second(request):
+        calls["second"] += 1
+        return httpx.Response(200, json=_gemini_response('{"ok": true}'))
+
+    provider = RotatingGeminiProvider([_provider(first), _provider(second)])
+    assert _generate(provider) == '{"ok": true}'
+    assert calls == {"first": 1, "second": 1}
+    # The exhausted key is skipped; the next request goes straight to the working key.
+    assert _generate(provider) == '{"ok": true}'
+    assert calls == {"first": 1, "second": 2}
+
+
+def test_rotation_recovers_after_all_keys_exhausted():
+    responder = {"key1": 429, "key2": 429}
+
+    def make(key):
+        return lambda request: httpx.Response(
+            responder[key], json=_gemini_response() if responder[key] == 200 else {}
+        )
+
+    provider = RotatingGeminiProvider([_provider(make("key1")), _provider(make("key2"))])
+    with pytest.raises(VisionProviderQuotaError, match="All 2 Gemini API keys"):
+        _generate(provider)
+    # Once quota renews, the next request starts over from the first key.
+    responder["key1"] = 200
+    assert _generate(provider) == '{"ok": true}'
+
+
+def test_non_quota_errors_do_not_rotate():
+    calls = {"first": 0, "second": 0}
+
+    def first(request):
+        calls["first"] += 1
+        return httpx.Response(400, json={})
+
+    def second(request):
+        calls["second"] += 1
+        return httpx.Response(200, json=_gemini_response())
+
+    provider = RotatingGeminiProvider([_provider(first), _provider(second)])
+    with pytest.raises(VisionProviderError):
+        _generate(provider)
+    assert calls == {"first": 1, "second": 0}
+
+
+def test_factory_builds_rotating_provider_from_key_list():
+    provider = get_vision_provider(
+        Settings(_env_file=None, GEMINI_API_KEY=None, GEMINI_API_KEYS="k1, k2 ,,k3")
+    )
+    assert isinstance(provider, RotatingGeminiProvider)
+    assert len(provider._providers) == 3
+
+
+def test_factory_single_key_list_stays_single_provider():
+    provider = get_vision_provider(Settings(_env_file=None, GEMINI_API_KEYS="k1"))
+    assert isinstance(provider, GeminiVisionProvider)

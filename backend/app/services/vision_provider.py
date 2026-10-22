@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import threading
 from collections.abc import Awaitable, Callable
 from typing import Any, Optional, Protocol
 
@@ -16,6 +17,10 @@ class VisionProviderError(Exception):
 
 class VisionProviderNotConfiguredError(VisionProviderError):
     pass
+
+
+class VisionProviderQuotaError(VisionProviderError):
+    """The API key's quota (rate or daily) is exhausted; another key may still have capacity."""
 
 
 class VisionProviderTimeoutError(VisionProviderError):
@@ -136,7 +141,8 @@ class GeminiVisionProvider:
             if response.status_code not in RETRYABLE_STATUS_CODES or attempt == self._max_retries:
                 break
             await self._sleep(_retry_delay(response, attempt, self._retry_base_delay))
-        raise VisionProviderError(f"Gemini returned HTTP {response.status_code}{_api_error_message(response)}")
+        error_type = VisionProviderQuotaError if response.status_code == 429 else VisionProviderError
+        raise error_type(f"Gemini returned HTTP {response.status_code}{_api_error_message(response)}")
 
     async def _post(self, body: dict[str, Any]) -> httpx.Response:
         headers = {"x-goog-api-key": self._api_key}
@@ -177,17 +183,67 @@ def _extract_text(data: Any) -> str:
     )
 
 
+class RotatingGeminiProvider:
+    """Fail over between several Gemini API keys when a key's quota is exhausted.
+
+    A 429 marks that key as exhausted and the request continues on the next key in
+    round-robin order. When every key is exhausted the set resets — quotas renew daily —
+    and the error propagates, so the next request tries the first key again.
+    """
+
+    def __init__(self, providers: list[GeminiVisionProvider]) -> None:
+        if not providers:
+            raise ValueError("RotatingGeminiProvider needs at least one key")
+        self._providers = list(providers)
+        self._exhausted: set[int] = set()
+        self._cursor = 0
+        self._lock = threading.Lock()
+
+    async def generate_json(self, **kwargs) -> str:
+        for _ in range(len(self._providers)):
+            index = self._next_index()
+            if index is None:
+                break
+            try:
+                return await self._providers[index].generate_json(**kwargs)
+            except VisionProviderQuotaError:
+                self._mark_exhausted(index)
+        with self._lock:
+            self._exhausted.clear()
+        raise VisionProviderQuotaError(
+            f"All {len(self._providers)} Gemini API keys exhausted their quota"
+        )
+
+    def _next_index(self) -> Optional[int]:
+        with self._lock:
+            if len(self._exhausted) == len(self._providers):
+                return None
+            while self._cursor in self._exhausted:
+                self._cursor = (self._cursor + 1) % len(self._providers)
+            return self._cursor
+
+    def _mark_exhausted(self, index: int) -> None:
+        with self._lock:
+            self._exhausted.add(index)
+            self._cursor = (index + 1) % len(self._providers)
+
+
 def get_vision_provider(settings: Settings) -> VisionProvider:
     if settings.VISION_PROVIDER.lower() != "gemini":
         raise VisionProviderNotConfiguredError(
             f"Unsupported VISION_PROVIDER: {settings.VISION_PROVIDER}"
         )
-    if settings.GEMINI_API_KEY is None or not settings.GEMINI_API_KEY.get_secret_value():
+    api_keys = settings.gemini_api_key_list()
+    if not api_keys:
         raise VisionProviderNotConfiguredError("GEMINI_API_KEY is not set")
-    return GeminiVisionProvider(
-        api_key=settings.GEMINI_API_KEY.get_secret_value(),
-        model=settings.GEMINI_MODEL,
-        base_url=settings.GEMINI_API_BASE_URL,
-        timeout_seconds=settings.VISION_TIMEOUT_SECONDS,
-        max_retries=settings.VISION_MAX_RETRIES,
-    )
+    providers = [
+        GeminiVisionProvider(
+            api_key=key,
+            model=settings.GEMINI_MODEL,
+            base_url=settings.GEMINI_API_BASE_URL,
+            timeout_seconds=settings.VISION_TIMEOUT_SECONDS,
+            max_retries=settings.VISION_MAX_RETRIES,
+        )
+        for key in api_keys
+    ]
+    return providers[0] if len(providers) == 1 else RotatingGeminiProvider(providers)

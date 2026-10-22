@@ -9,6 +9,13 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
+    def gemini_api_key_list(self) -> list[str]:
+        if self.GEMINI_API_KEYS is not None and self.GEMINI_API_KEYS.get_secret_value().strip():
+            return [k.strip() for k in self.GEMINI_API_KEYS.get_secret_value().split(",") if k.strip()]
+        if self.GEMINI_API_KEY is not None and self.GEMINI_API_KEY.get_secret_value().strip():
+            return [self.GEMINI_API_KEY.get_secret_value().strip()]
+        return []
+
     model_config = SettingsConfigDict(
         env_file=BACKEND_DIR / ".env",
         env_file_encoding="utf-8",
@@ -44,7 +51,12 @@ class Settings(BaseSettings):
     VISION_TIMEOUT_SECONDS: float = Field(default=120.0, gt=0)
     # Retries for rate-limit/overload responses (429, 5xx), with exponential backoff.
     VISION_MAX_RETRIES: int = Field(default=3, ge=0)
+    # One targeted re-read of a cropped ID number or date that is invalid, ambiguous, or unreadable.
+    FIELD_RECHECK_ENABLED: bool = True
     GEMINI_API_KEY: Optional[SecretStr] = None
+    # Optional comma-separated list of keys; takes precedence over GEMINI_API_KEY. When a
+    # key's quota is exhausted the next key is used, wrapping around after quota resets.
+    GEMINI_API_KEYS: Optional[SecretStr] = None
     GEMINI_MODEL: str = "gemini-3.5-flash"
     GEMINI_API_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta"
 
