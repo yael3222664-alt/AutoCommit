@@ -149,6 +149,14 @@ describe("Toolbar", () => {
     expect(html).toContain('<button type="button" class="btn btn-primary">שמירה (2)</button>');
   });
 
+  it("shows a busy spinner and disables the file input while uploading", () => {
+    const html = renderToStaticMarkup(<Toolbar {...props} uploading={true} />);
+    expect(html).toContain('class="upload-status" role="status" aria-live="polite" aria-busy="true"');
+    expect(html).toContain('class="upload-spinner" aria-hidden="true"');
+    expect(html).toContain("מעלה קובץ…");
+    expect(html).toContain('<input type="file" accept="application/pdf,image/png,image/jpeg" disabled=""');
+  });
+
   it("disables batch save with nothing pending and reports failed saves", () => {
     const html = renderToStaticMarkup(<Toolbar {...props} pendingCount={0} failedSaves={1} />);
     expect(html).toContain('disabled="">שמירה (0)</button>');

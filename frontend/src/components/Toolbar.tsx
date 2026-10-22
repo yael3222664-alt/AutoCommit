@@ -53,7 +53,12 @@ export function Toolbar(props: ToolbarProps) {
         ))}
       </div>
       <span className="toolbar-spacer" />
-      {props.uploading && <span className="toolbar-status">מעלה…</span>}
+      {props.uploading && (
+        <span className="upload-status" role="status" aria-live="polite" aria-busy="true">
+          <span className="upload-spinner" aria-hidden="true" />
+          <span className="upload-status-text">מעלה קובץ…</span>
+        </span>
+      )}
       {props.uploadError && (
         <span className="toolbar-status error" role="alert">
           {props.uploadError}
