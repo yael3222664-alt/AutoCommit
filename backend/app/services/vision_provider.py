@@ -19,6 +19,10 @@ class VisionProviderNotConfiguredError(VisionProviderError):
     pass
 
 
+class VisionProviderTransientError(VisionProviderError):
+    """A retryable-status failure (503/500/502/504) that exhausted its retries."""
+
+
 class VisionProviderQuotaError(VisionProviderError):
     """The API key's quota (rate or daily) is exhausted; another key may still have capacity."""
 
@@ -143,7 +147,12 @@ class GeminiVisionProvider:
             if response.status_code not in RETRYABLE_STATUS_CODES or attempt == self._max_retries:
                 break
             await self._sleep(_retry_delay(response, attempt, self._retry_base_delay))
-        error_type = VisionProviderQuotaError if response.status_code == 429 else VisionProviderError
+        if response.status_code == 429:
+            error_type = VisionProviderQuotaError
+        elif response.status_code in RETRYABLE_STATUS_CODES:
+            error_type = VisionProviderTransientError
+        else:
+            error_type = VisionProviderError
         raise error_type(f"Gemini returned HTTP {response.status_code}{_api_error_message(response)}")
 
     async def _post(self, body: dict[str, Any]) -> httpx.Response:
@@ -202,6 +211,7 @@ class RotatingGeminiProvider:
         self._lock = threading.Lock()
 
     async def generate_json(self, **kwargs) -> str:
+        last_error: VisionProviderError | None = None
         for _ in range(len(self._providers)):
             index = self._next_index()
             if index is None:
@@ -210,11 +220,22 @@ class RotatingGeminiProvider:
                 return await self._providers[index].generate_json(**kwargs)
             except VisionProviderQuotaError:
                 self._mark_exhausted(index)
+            except VisionProviderTransientError as exc:
+                # A Google-side outage on this key does not exhaust it — just move on.
+                last_error = exc
+                self._advance(index)
+        if self._exhausted:
+            with self._lock:
+                self._exhausted.clear()
+            raise VisionProviderQuotaError(
+                f"All {len(self._providers)} Gemini API keys exhausted their quota"
+            )
+        raise last_error or VisionProviderError("Gemini request failed on all API keys")
+
+    def _advance(self, index: int) -> None:
         with self._lock:
-            self._exhausted.clear()
-        raise VisionProviderQuotaError(
-            f"All {len(self._providers)} Gemini API keys exhausted their quota"
-        )
+            if self._cursor == index:
+                self._cursor = (index + 1) % len(self._providers)
 
     def _next_index(self) -> int | None:
         with self._lock:

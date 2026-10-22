@@ -12,6 +12,7 @@ from backend.app.services.vision_provider import (
     VisionProviderError,
     VisionProviderNotConfiguredError,
     VisionProviderQuotaError,
+    VisionProviderTransientError,
     VisionProviderTimeoutError,
     get_vision_provider,
 )
@@ -263,6 +264,30 @@ def test_rotation_recovers_after_all_keys_exhausted():
     # Once quota renews, the next request starts over from the first key.
     responder["key1"] = 200
     assert _generate(provider) == '{"ok": true}'
+
+
+def test_rotation_fails_over_on_transient_server_errors():
+    calls = {"first": 0, "second": 0}
+
+    def first(request):
+        calls["first"] += 1
+        return httpx.Response(503, json={})
+
+    def second(request):
+        calls["second"] += 1
+        return httpx.Response(200, json=_gemini_response('{"ok": true}'))
+
+    provider = RotatingGeminiProvider([_provider(first), _provider(second)])
+    assert _generate(provider) == '{"ok": true}'
+    assert calls == {"first": 1, "second": 1}
+
+
+def test_transient_errors_on_all_keys_raise_the_last_error():
+    provider = RotatingGeminiProvider(
+        [_provider(lambda request: httpx.Response(503, json={})) for _ in range(2)]
+    )
+    with pytest.raises(VisionProviderTransientError):
+        _generate(provider)
 
 
 def test_non_quota_errors_do_not_rotate():
