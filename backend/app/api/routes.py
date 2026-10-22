@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -21,7 +21,7 @@ from ..services.ingestion_service import (
     UnsupportedFileTypeError,
     validate_upload,
 )
-from ..services.page_image_store import PageImageError, PageImageStore
+from ..services.page_image_store import PageImageError, PageImageStorageError, PageImageStore
 from ..services.pdf_service import PDFProcessingError
 from ..services.record_service import (
     InvalidRecordUpdateError,
@@ -29,6 +29,7 @@ from ..services.record_service import (
     RecordNotFoundError,
     RecordService,
 )
+from ..services.storage_factory import StorageNotConfiguredError, build_page_image_store
 from ..services.vision_provider import VisionProviderNotConfiguredError, get_vision_provider
 
 logger = logging.getLogger(__name__)
@@ -56,18 +57,31 @@ def get_document_pipeline() -> DocumentPipeline:
 
 
 @lru_cache
+def build_configured_page_image_store() -> PageImageStore:
+    return build_page_image_store(get_settings())
+
+
 def get_page_image_store() -> PageImageStore:
-    return PageImageStore(get_settings().PAGE_IMAGE_DIR)
+    try:
+        return build_configured_page_image_store()
+    except StorageNotConfiguredError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Page image storage is not configured") from exc
 
 
 def _store_page_images(images: PageImageStore, document_id: str, pages: list[ProcessedPage]) -> list[ExtractedRecord]:
-    """Persist each page image and link it from its record. A storage failure only loses the image."""
+    """Persist each page image and link it from its record.
+
+    A page whose image could not be stored keeps `image_path=None`; its record and its
+    siblings are still saved, and re-uploading the document links the missing image.
+    """
     records = []
     for page in pages:
         try:
             key = images.save(document_id, page.record.page_number, page.image)
-        except (OSError, PageImageError):
-            logger.exception("Could not store image for page %d", page.record.page_number)
+        except (OSError, PageImageError) as exc:
+            logger.warning(
+                "Could not store image for page %d (%s: %s)", page.record.page_number, type(exc).__name__, exc
+            )
             key = None
         records.append(page.record.model_copy(update={"image_path": key}))
     return records
@@ -168,19 +182,22 @@ def update_record(
         raise HTTPException(422, str(exc)) from exc
 
 
-@router.get("/records/{record_id}/image", response_class=FileResponse)
+@router.get("/records/{record_id}/image", response_class=Response)
 def get_record_image(
     record_id: str,
     records: RecordService = Depends(get_record_service),
     images: PageImageStore = Depends(get_page_image_store),
-) -> FileResponse:
+) -> Response:
     """The page image the record was extracted from; bounding boxes are normalized to it."""
     try:
         record = records.get_record(record_id)
     except RecordNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Record not found") from exc
-    stored = images.resolve(record.image_path) if record.image_path else None
+    try:
+        stored = images.load(record.image_path) if record.image_path else None
+    except PageImageStorageError as exc:
+        logger.warning("Could not load page image (%s)", exc)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Page image storage unavailable") from exc
     if stored is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Page image not available")
-    path, media_type = stored
-    return FileResponse(path, media_type=media_type, headers={"Cache-Control": "private, max-age=3600"})
+    return Response(stored.content, media_type=stored.media_type, headers={"Cache-Control": "private, max-age=3600"})

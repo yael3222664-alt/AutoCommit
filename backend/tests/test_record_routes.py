@@ -40,7 +40,7 @@ def upload(client, content, filename="doc.pdf", content_type="application/pdf"):
 
 
 def test_tests_never_use_the_development_database():
-    assert get_settings().DATABASE_URL == "sqlite://"
+    assert get_settings().DATABASE_URL.get_secret_value() == "sqlite://"
 
 
 # --- upload persistence --------------------------------------------------------

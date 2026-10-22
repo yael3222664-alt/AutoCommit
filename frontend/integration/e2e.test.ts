@@ -223,7 +223,7 @@ describe("end-to-end record lifecycle", () => {
     const images: Buffer[] = [];
     for (const page of [1, 2, 3]) {
       const record = await rawJson<RecordResponse>(`/api/records/${ids[page]}`);
-      expect(record.image_path).toBe(`${record.document_id}/${page}.png`);
+      expect(record.image_path).toBe(`${record.document_id}/page_${page}.png`);
       const response = await fetch(recordImageUrl(ids[page]!, backend.baseUrl));
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toBe("image/png");
@@ -448,7 +448,7 @@ describe("records saved before page images existed", () => {
     expect(strip(byPage(reuploaded, 1))).toEqual(strip(approved));
     expect(strip(byPage(reuploaded, 2))).toEqual(strip(rejected));
     for (const record of reuploaded) {
-      expect(record.image_path).toBe(`${record.document_id}/${record.page_number}.png`);
+      expect(record.image_path).toBe(`${record.document_id}/page_${record.page_number}.png`);
       const response = await fetch(recordImageUrl(record.id, backend.baseUrl));
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toBe("image/png");

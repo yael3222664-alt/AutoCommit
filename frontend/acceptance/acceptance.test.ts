@@ -156,7 +156,7 @@ describe("browser acceptance", () => {
     expect(list.items.map((r) => r.page_number).sort()).toEqual([1, 2, 3]);
     ids = Object.fromEntries(list.items.map((r) => [r.page_number, r.id]));
     documentId = list.items[0]!.document_id;
-    expect((await readdir(path.join(workDir, "acceptance-pages", documentId))).sort()).toEqual(["1.png", "2.png", "3.png"]);
+    expect((await readdir(path.join(workDir, "acceptance-pages", documentId))).sort()).toEqual(["page_1.png", "page_2.png", "page_3.png"]);
     for (const record of list.items) {
       const response = await api(`/api/records/${record.id}/image`);
       const png = Buffer.from(await response.arrayBuffer());
@@ -345,7 +345,7 @@ describe("browser acceptance", () => {
 
   it("shows an error instead of crashing when a stored page image is missing", async () => {
     allowedStatuses.add(404);
-    await unlink(path.join(workDir, "acceptance-pages", documentId, "2.png"));
+    await unlink(path.join(workDir, "acceptance-pages", documentId, "page_2.png"));
     await (await page.context().newCDPSession(page)).send("Network.clearBrowserCache");
     await selectPage(2);
     await page.waitForSelector(".document-status[role=alert]");
@@ -393,7 +393,7 @@ describe("browser acceptance", () => {
     await waitForPageImage();
     const relinked = await getRecord(legacyId);
     expect({ ...relinked, image_path: null, updated_at: "" }).toEqual({ ...edited, updated_at: "" });
-    expect(relinked.image_path).toBe(`${relinked.document_id}/1.png`);
+    expect(relinked.image_path).toBe(`${relinked.document_id}/page_1.png`);
     expect(await page.locator(".overlay-box").count()).toBe(Object.values(boxes).filter(Boolean).length);
     await page.focus("#field-first_name");
     await page.waitForSelector(".snippet-image");

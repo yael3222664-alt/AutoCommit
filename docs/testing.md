@@ -2,7 +2,8 @@
 
 | Command | What it covers | Needs |
 |---|---|---|
-| `pytest` (repo root) | Backend unit and API tests | `.venv` with `backend/requirements.txt` |
+| `pytest` (repo root) | Backend unit and API tests (SQLite, simulated Supabase Storage) | `.venv` with `backend/requirements.txt` |
+| `TEST_POSTGRES_URL=postgresql://... pytest` | Also runs the live PostgreSQL tests (TLS, JSONB, migrations, concurrent startup). They drop and recreate the AutoCommit tables, so use a throwaway database | PostgreSQL |
 | `cd frontend && npm test` | Frontend unit tests | `npm install` |
 | `cd frontend && npm run test:integration` | Frontend API client and store against the real backend (SQLite, fake vision provider) | `.venv` |
 | `cd frontend && npm run test:acceptance` | Real UI in headless Chrome against the Vite dev server and the real backend | `.venv`, Chrome/Chromium |

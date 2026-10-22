@@ -97,11 +97,11 @@ def serve(port: int, database: Path, fail_pages: set[int], page_images: bool = T
     pipeline = DocumentPipeline(extractor, max_concurrency=3)
     app.dependency_overrides[routes.get_document_pipeline] = lambda: pipeline
     if not page_images:
-        from backend.app.services.page_image_store import PageImageError, PageImageStore
+        from backend.app.services.page_image_store import LocalPageImageStore, PageImageStorageError
 
-        class NoPageImages(PageImageStore):
+        class NoPageImages(LocalPageImageStore):
             def save(self, document_id: str, page_number: int, image_bytes: bytes) -> str:
-                raise PageImageError("page images disabled")
+                raise PageImageStorageError("page images disabled")
 
         store = NoPageImages(Path(os.environ["PAGE_IMAGE_DIR"]))
         app.dependency_overrides[routes.get_page_image_store] = lambda: store

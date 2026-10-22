@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
 from backend.app.api import routes  # noqa: E402
 from backend.app.db.session import create_db_engine, get_db_session, init_db  # noqa: E402
 from backend.app.main import app  # noqa: E402
-from backend.app.services.page_image_store import PageImageStore  # noqa: E402
+from backend.app.services.page_image_store import LocalPageImageStore  # noqa: E402
 
 
 @pytest.fixture
@@ -38,8 +38,8 @@ def isolated_database(db_sessionmaker):
 
 
 @pytest.fixture
-def page_image_store(tmp_path) -> PageImageStore:
-    return PageImageStore(tmp_path / "pages")
+def page_image_store(tmp_path) -> LocalPageImageStore:
+    return LocalPageImageStore(tmp_path / "pages")
 
 
 @pytest.fixture(autouse=True)

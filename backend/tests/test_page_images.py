@@ -8,7 +8,7 @@ from backend.app.api import routes
 from backend.app.main import app
 from backend.app.schemas import ExtractedRecord, FieldValue, RecordUpdateSchema
 from backend.app.services.document_pipeline import DocumentPipeline
-from backend.app.services.page_image_store import PageImageError, PageImageStore
+from backend.app.services.page_image_store import PageImageError, LocalPageImageStore
 from backend.app.services.record_service import RecordService
 from backend.tests.fakes import JPEG_BYTES, PNG_BYTES
 
@@ -43,8 +43,8 @@ def client():
 def test_store_saves_png_and_jpeg_under_document_key(page_image_store):
     png_key = page_image_store.save(DOC_ID, 1, PNG_BYTES)
     jpeg_key = page_image_store.save(DOC_ID, 2, JPEG_BYTES)
-    assert png_key == f"{DOC_ID}/1.png"
-    assert jpeg_key == f"{DOC_ID}/2.jpg"
+    assert png_key == f"{DOC_ID}/page_1.png"
+    assert jpeg_key == f"{DOC_ID}/page_2.jpg"
     path, mime = page_image_store.resolve(png_key)
     assert path.read_bytes() == PNG_BYTES and mime == "image/png"
     assert page_image_store.resolve(jpeg_key)[1] == "image/jpeg"
@@ -53,7 +53,7 @@ def test_store_saves_png_and_jpeg_under_document_key(page_image_store):
 def test_store_overwrites_idempotently_and_leaves_no_temp_files(page_image_store, tmp_path):
     page_image_store.save(DOC_ID, 1, PNG_BYTES)
     page_image_store.save(DOC_ID, 1, PNG_BYTES)
-    assert sorted(p.name for p in (tmp_path / "pages" / DOC_ID).iterdir()) == ["1.png"]
+    assert sorted(p.name for p in (tmp_path / "pages" / DOC_ID).iterdir()) == ["page_1.png"]
 
 
 @pytest.mark.parametrize(
@@ -67,7 +67,7 @@ def test_store_rejects_invalid_input(page_image_store, document_id, page_number,
 
 def test_resolve_refuses_keys_outside_the_store(tmp_path):
     (tmp_path / "secret.png").write_bytes(PNG_BYTES)
-    store = PageImageStore(tmp_path / "pages")
+    store = LocalPageImageStore(tmp_path / "pages")
     assert store.resolve("../secret.png") is None
     assert store.resolve(str(tmp_path / "secret.png")) is None
     assert store.resolve(f"{DOC_ID}/9.png") is None
@@ -77,7 +77,7 @@ def test_upload_stores_each_page_image_and_serves_it(client):
     pdf = _pdf(2)
     records = client.post("/api/documents/upload", files={"file": ("d.pdf", pdf, "application/pdf")}).json()
     document_id = hashlib.sha256(pdf).hexdigest()
-    assert [r["image_path"] for r in records] == [f"{document_id}/1.png", f"{document_id}/2.png"]
+    assert [r["image_path"] for r in records] == [f"{document_id}/page_1.png", f"{document_id}/page_2.png"]
 
     bodies = []
     for record in records:
@@ -122,7 +122,7 @@ def test_image_endpoint_404s(client, db_session, page_image_store):
 
 def test_resolve_refuses_symlinks_leaving_the_store(tmp_path):
     (tmp_path / "secret.png").write_bytes(PNG_BYTES)
-    store = PageImageStore(tmp_path / "pages")
+    store = LocalPageImageStore(tmp_path / "pages")
     (tmp_path / "pages" / DOC_ID).mkdir(parents=True)
     (tmp_path / "pages" / DOC_ID / "1.png").symlink_to(tmp_path / "secret.png")
     assert store.resolve(f"{DOC_ID}/1.png") is None
@@ -161,7 +161,7 @@ def test_reupload_links_image_to_legacy_record_without_touching_edits(client, db
 
     assert [r["id"] for r in records] == legacy_ids
     assert records[0]["first_name"]["value"] == "Dana" and records[0]["status"] == "rejected"
-    assert [r["image_path"] for r in records] == [f"{document_id}/1.png", f"{document_id}/2.png"]
+    assert [r["image_path"] for r in records] == [f"{document_id}/page_1.png", f"{document_id}/page_2.png"]
     assert client.get(f"/api/records/{legacy_ids[0]}/image").status_code == 200
     assert {k: v for k, v in records[0].items() if k not in ("image_path", "updated_at")} == {
         k: v for k, v in edited.model_dump(mode="json").items() if k not in ("image_path", "updated_at")
@@ -173,4 +173,4 @@ def test_reupload_keeps_an_existing_image_link(client, db_session, page_image_st
     document_id = hashlib.sha256(pdf).hexdigest()
     first = client.post("/api/documents/upload", files={"file": ("d.pdf", pdf, "application/pdf")}).json()[0]
     second = client.post("/api/documents/upload", files={"file": ("d.pdf", pdf, "application/pdf")}).json()[0]
-    assert second == first and second["image_path"] == f"{document_id}/1.png"
+    assert second == first and second["image_path"] == f"{document_id}/page_1.png"

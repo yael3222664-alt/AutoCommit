@@ -3,14 +3,17 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api.routes import router
-from .config import settings
+from .api.routes import build_configured_page_image_store, router
+from .config import get_settings, settings
 from .db.session import get_engine, init_db
+from .services.storage_factory import verify_page_image_store
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    init_db(get_engine())
+    if get_settings().DB_AUTO_MIGRATE:
+        init_db(get_engine())
+    verify_page_image_store(build_configured_page_image_store())
     yield
 
 

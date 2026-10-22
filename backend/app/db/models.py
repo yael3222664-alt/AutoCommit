@@ -4,10 +4,13 @@ from datetime import datetime
 from typing import Any, Optional
 
 from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from ..schemas import RecordStatus
 
+# JSONB on PostgreSQL (indexable, compact), JSON elsewhere.
+_JSON = JSON().with_variant(JSONB(), "postgresql")
 _STATUS_VALUES = ", ".join(f"'{status.value}'" for status in RecordStatus)
 
 
@@ -38,7 +41,7 @@ class RecordRow(Base):
     sender: Mapped[Optional[str]] = mapped_column(String(255), index=True)
     id_number: Mapped[Optional[str]] = mapped_column(String(32))
     received_date: Mapped[Optional[str]] = mapped_column(String(10))
-    data: Mapped[dict[str, Any]] = mapped_column(JSON)
+    data: Mapped[dict[str, Any]] = mapped_column(_JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime)
 
@@ -55,8 +58,8 @@ class RecordEditRow(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     record_id: Mapped[str] = mapped_column(ForeignKey("records.id", ondelete="CASCADE"), index=True)
     field: Mapped[str] = mapped_column(String(64))
-    old_value: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
-    new_value: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    old_value: Mapped[Optional[Any]] = mapped_column(_JSON, nullable=True)
+    new_value: Mapped[Optional[Any]] = mapped_column(_JSON, nullable=True)
     edited_at: Mapped[datetime] = mapped_column(DateTime)
 
     record: Mapped[RecordRow] = relationship(back_populates="edits")

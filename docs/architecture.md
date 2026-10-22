@@ -28,8 +28,28 @@ AutoCommit is an intake, extraction, and verification engine for medical commitm
        │     └─ Sender Entity Whitelist Matching
        │
        └─► [ Repository / Database Layer ]
-             └─ SQLite Persistence
+             ├─ SQLite (local, tests) or PostgreSQL (Supabase), Alembic migrations
+             └─ Page images: local directory or private Supabase Storage bucket
 ```
+
+### Persistence configuration
+- `DATABASE_URL` selects SQLite (default) or PostgreSQL. PostgreSQL connections use psycopg 3,
+  TLS (`DB_SSL_MODE`, default `require`), pre-ping, a bounded pool and a connect timeout, and
+  disable server-side prepared statements so the Supabase transaction pooler works.
+- The schema is versioned with Alembic (`backend/app/db/migrations`). Startup applies pending
+  migrations (`DB_AUTO_MIGRATE`); `python -m backend.app.db.migrate` does the same as a separate
+  step. A database created before migrations existed is compared with the baseline and stamped,
+  keeping its data; one that differs is refused unchanged. On PostgreSQL an advisory lock
+  serializes concurrent startups.
+- `PAGE_IMAGE_STORAGE` selects `local` (`PAGE_IMAGE_DIR`) or `supabase` (private bucket, accessed
+  only server-side with the service-role key). Records store the object key
+  `<document_id>/page_<n>.<png|jpg>`, never a URL; the frontend always reads images through
+  `GET /api/records/{id}/image`. Upload is upsert on that deterministic key, so a retry rewrites
+  only its own page. A page whose image could not be stored keeps `image_path = null`; its
+  siblings are unaffected, and re-uploading the document links the missing image. The app
+  refuses to start if the bucket is public; an unreachable store makes the image endpoint
+  return 503 without failing uploads.
+- All variables are listed, without values, in `.env.example`.
 
 ---
 
@@ -45,6 +65,11 @@ backend/
 │   ├── api/
 │   │   ├── __init__.py
 │   │   └── routes.py        # HTTP route handlers (upload, health, query)
+│   ├── db/
+│   │   ├── models.py        # SQLAlchemy tables (JSONB on PostgreSQL)
+│   │   ├── session.py       # Engine factory for SQLite / PostgreSQL
+│   │   ├── migrate.py       # Alembic runner, adoption of pre-migration databases
+│   │   └── migrations/      # Alembic environment and revisions
 │   └── services/
 │       ├── __init__.py
 │       ├── ingestion_service.py   # Upload validation (size, content-based file type)
@@ -52,10 +77,14 @@ backend/
 │       ├── document_pipeline.py   # Per-page orchestration, concurrency limit, failure isolation
 │       ├── vision_provider.py     # Vision provider interface and Gemini adapter
 │       ├── extractor_service.py   # Extraction prompt, response schema, and output parsing
+│       ├── page_image_store.py    # Page image store interface, keys, local directory store
+│       ├── supabase_image_store.py # Private Supabase Storage store (server-side only)
+│       ├── storage_factory.py     # Builds the configured store
 │       └── validator_service.py   # Domain normalization and business rule validation
 ├── tests/                   # Pytest unit and integration test suites
-├── requirements.txt         # Production and development dependencies
-└── .env.example             # Configuration template
+└── requirements.txt         # Production and development dependencies
+.env.example                 # Configuration template (repo root, no values)
+alembic.ini                  # Alembic CLI configuration
 ```
 
 ---
