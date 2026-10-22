@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { getGroundedFields } from "../review/groundedFields";
 import { makeRecord } from "../test/fixtures";
+import { LoginScreen } from "./AuthGate";
 import { DocumentViewer } from "./DocumentViewer";
 import { RecordsTable } from "./RecordsTable";
 import { ReviewForm } from "./ReviewForm";
@@ -185,5 +186,21 @@ describe("RecordsTable", () => {
     expect(html).toContain('<div class="cell-field attention"><input id="cell-rec-1-last_name"');
     expect(html).toContain('<div class="cell-field active"><input id="cell-rec-1-id_number"');
     expect(html).toMatch(/id="cell-rec-2-first_name"[^>]*readonly=""/);
+  });
+});
+
+describe("LoginScreen", () => {
+  it("renders a password field without echoing any value", () => {
+    const html = renderToStaticMarkup(<LoginScreen submitting={false} error={null} onSubmit={() => {}} />);
+    expect(html).toContain('type="password"');
+    expect(html).toMatch(/autocomplete="current-password"/i);
+    expect(html).not.toContain('role="alert"');
+  });
+
+  it("shows the error and disables input while submitting", () => {
+    const html = renderToStaticMarkup(<LoginScreen submitting error="הסיסמה שגויה" onSubmit={() => {}} />);
+    expect(html).toContain("הסיסמה שגויה");
+    expect(html).toContain("מתחבר…");
+    expect(html).toMatch(/<input[^>]*disabled/);
   });
 });

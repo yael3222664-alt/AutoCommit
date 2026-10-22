@@ -252,3 +252,31 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   .workspace { grid-template-columns: minmax(0, 1fr); }
   .inspection-panel { position: static; max-block-size: none; }
 }
+
+/* Login */
+.auth-screen { display: grid; place-items: center; min-block-size: 100vh; padding: var(--space-5); background: var(--color-bg); }
+.auth-card {
+  display: flex; flex-direction: column; gap: var(--space-3); inline-size: min(100%, 360px); padding: var(--space-6);
+  background: var(--color-surface); border: var(--border-width) solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-md);
+}
+.auth-title { margin: 0 0 var(--space-2); font-size: var(--font-size-xl); font-weight: var(--font-weight-bold); }
+.auth-label { font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); color: var(--color-text-muted); }
+.auth-input {
+  padding-block: var(--space-2); padding-inline: var(--space-3); font: inherit;
+  border: var(--border-width) solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-surface-muted);
+}
+.auth-input:focus { border-color: var(--color-accent); background: var(--color-surface); box-shadow: var(--focus-ring); outline: none; }
+.auth-error { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--color-danger-soft); color: var(--color-danger-text); font-size: var(--font-size-sm); }
+.auth-status { color: var(--color-text-muted); }
+.auth-submit {
+  padding-block: var(--space-2); font: inherit; font-weight: var(--font-weight-bold); cursor: pointer;
+  border: none; border-radius: var(--radius-md); background: var(--color-action); color: var(--color-text-inverse);
+}
+.auth-submit:hover:not(:disabled) { background: var(--color-action-hover); }
+.auth-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+.logout-button {
+  position: fixed; inset-block-end: var(--space-4); inset-inline-start: var(--space-4); z-index: 20;
+  padding-block: var(--space-1); padding-inline: var(--space-3); font: inherit; font-size: var(--font-size-sm); cursor: pointer;
+  border: var(--border-width) solid var(--color-border-strong); border-radius: var(--radius-pill); background: var(--color-surface); color: var(--color-text-muted); box-shadow: var(--shadow-sm);
+}
+.logout-button:hover { color: var(--color-text); background: var(--color-surface-hover); }

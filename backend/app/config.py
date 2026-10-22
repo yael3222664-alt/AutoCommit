@@ -16,12 +16,26 @@ class Settings(BaseSettings):
     )
 
     APP_NAME: str = "AutoCommit Engine"
+    # "production" enables fail-closed startup checks (see backend/app/startup_checks.py).
+    ENVIRONMENT: Literal["development", "production"] = "development"
     DEBUG: bool = True
     ALLOWED_ORIGINS: list[str] = [
         "http://localhost:3000",
         "http://localhost:5173",
         "http://localhost:4200",
     ]
+
+    # Shared-password login guarding every /api route except health and auth.
+    AUTH_ENABLED: bool = False
+    APP_ACCESS_PASSWORD: Optional[SecretStr] = None
+    # HMAC key for session cookies; rotating it signs everyone out.
+    SESSION_SECRET: Optional[SecretStr] = None
+    SESSION_MAX_AGE_SECONDS: int = Field(default=12 * 3600, ge=300)
+    LOGIN_MAX_FAILURES: int = Field(default=5, ge=1)
+    LOGIN_FAILURE_WINDOW_SECONDS: int = Field(default=300, ge=1)
+
+    # Built frontend (frontend/dist) served by the API in single-service deployments.
+    FRONTEND_DIST_DIR: Optional[Path] = None
 
     MAX_UPLOAD_SIZE_MB: int = Field(default=20, ge=1)
 

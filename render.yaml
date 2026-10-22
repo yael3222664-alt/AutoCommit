@@ -1,0 +1,41 @@
+# Render Blueprint: one Docker web service (API + frontend).
+# Values marked sync: false are entered in the Render dashboard (or via the API) and never committed.
+services:
+  - type: web
+    name: autocommit
+    runtime: docker
+    plan: free
+    region: frankfurt
+    branch: main
+    autoDeploy: true
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: AUTH_ENABLED
+        value: "true"
+      - key: ALLOWED_ORIGINS
+        value: "[]"
+      - key: DB_SSL_MODE
+        value: require
+      - key: PAGE_IMAGE_STORAGE
+        value: supabase
+      - key: SUPABASE_STORAGE_BUCKET
+        value: page-images
+      - key: VISION_MAX_CONCURRENCY
+        value: "2"
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: APP_ACCESS_PASSWORD
+        sync: false

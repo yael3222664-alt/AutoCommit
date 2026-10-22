@@ -1,4 +1,5 @@
 import type { RecordListResponse, RecordQueryParams, RecordResponse, RecordUpdatePayload } from "../types/record";
+import { notifyUnauthorized } from "./auth";
 import { parseRecordList, parseRecordListResponse, parseRecordResponse, ResponseShapeError } from "./responseValidation";
 
 export type ApiErrorKind = "network" | "timeout" | "aborted" | "http" | "malformed_response";
@@ -44,6 +45,8 @@ export interface RecordApi {
 }
 
 export interface ApiClientOptions {
+  /** Called when the server rejects the session (HTTP 401). */
+  onUnauthorized?: () => void;
   /** Backend origin; empty string means same origin (Vite proxy in development). */
   baseUrl?: string;
   fetchImpl?: typeof fetch;
@@ -123,6 +126,7 @@ export function createApiClient(options: ApiClientOptions = {}): RecordApi {
       }
 
       const body = await readJson(response);
+      if (response.status === 401) options.onUnauthorized?.();
       if (!response.ok) {
         const { message, issues } = describeHttpError(response.status, body);
         throw new ApiError("http", message, { status: response.status, issues });
@@ -179,7 +183,7 @@ export function createApiClient(options: ApiClientOptions = {}): RecordApi {
 
 const DEFAULT_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
-export const api: RecordApi = createApiClient({ baseUrl: DEFAULT_BASE_URL });
+export const api: RecordApi = createApiClient({ baseUrl: DEFAULT_BASE_URL, onUnauthorized: notifyUnauthorized });
 
 /** URL of the page image a record was extracted from (GET /api/records/{id}/image). */
 export function recordImageUrl(id: string, baseUrl: string = DEFAULT_BASE_URL): string {

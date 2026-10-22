@@ -2,6 +2,12 @@ import os
 
 # Never touch the development database: any engine built from settings is in-memory.
 os.environ["DATABASE_URL"] = "sqlite://"
+# Deployment settings from the developer's shell must not leak into tests.
+for _name in (
+    "ENVIRONMENT", "AUTH_ENABLED", "APP_ACCESS_PASSWORD", "SESSION_SECRET", "FRONTEND_DIST_DIR",
+    "PAGE_IMAGE_STORAGE", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_STORAGE_BUCKET",
+):
+    os.environ.pop(_name, None)
 
 import pytest  # noqa: E402
 from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
