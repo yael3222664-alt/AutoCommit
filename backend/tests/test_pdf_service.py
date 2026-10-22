@@ -1,7 +1,7 @@
 import pymupdf
 import pytest
 
-from backend.app.services.pdf_service import PDFProcessingError, convert_pdf_to_images
+from backend.app.services.pdf_service import PDFProcessingError, convert_pdf_to_images, open_pdf
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 A4_WIDTH_PT, A4_HEIGHT_PT = 595, 842
@@ -58,3 +58,26 @@ def test_password_protected_pdf_is_rejected():
 
     with pytest.raises(PDFProcessingError, match="password"):
         convert_pdf_to_images(encrypted)
+
+
+def test_open_pdf_renders_requested_pages_on_demand():
+    with open_pdf(_make_pdf(["One", "Two", "Three"])) as pages:
+        assert pages.page_count == 3
+        second = pages.render_png(2)
+        assert second.startswith(PNG_SIGNATURE)
+        assert second == pages.render_png(2)
+        assert second != pages.render_png(1)
+
+
+@pytest.mark.parametrize("page_number", [0, 3])
+def test_render_png_rejects_out_of_range_pages(page_number):
+    with open_pdf(_make_pdf(["One", "Two"])) as pages:
+        with pytest.raises(PDFProcessingError):
+            pages.render_png(page_number)
+
+
+def test_render_png_after_close_raises():
+    pages = open_pdf(_make_pdf(["One"]))
+    pages.close()
+    with pytest.raises(PDFProcessingError):
+        pages.render_png(1)

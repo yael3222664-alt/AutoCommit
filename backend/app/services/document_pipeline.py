@@ -3,18 +3,22 @@
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from typing import Optional
 
 from ..schemas import ExtractedRecord, FieldValue
 from .extractor_service import ExtractionError
 from .ingestion_service import FileType
-from .pdf_service import convert_pdf_to_images
+from .pdf_service import PDFProcessingError, open_pdf
 
 logger = logging.getLogger(__name__)
 
 EXTRACTION_FAILED_STATUS = "extraction_failed"
+RENDER_FAILED_REASON = "render_failed"
 
 PageExtractor = Callable[[bytes, int], Awaitable[ExtractedRecord]]
+PageLoader = Callable[[int], Awaitable[bytes]]
+# Persists a page image and returns its storage key, or None if it could not be stored.
+PageImageSink = Callable[[int, bytes], Optional[str]]
 
 
 def build_failed_record(page_number: int, reason: str) -> ExtractedRecord:
@@ -32,17 +36,13 @@ def build_failed_record(page_number: int, reason: str) -> ExtractedRecord:
     )
 
 
-@dataclass(frozen=True)
-class ProcessedPage:
-    record: ExtractedRecord
-    image: bytes
-
-
 class DocumentPipeline:
-    """Splits a document into pages and extracts each page independently.
+    """Splits a document into pages and processes each page independently.
 
-    Vision calls are limited to `max_concurrency` across all documents handled by
-    this instance. A failed page yields an `extraction_failed` record and does not
+    At most `max_concurrency` pages are in flight across all documents handled by this
+    instance. A page is rendered only when it gets a slot and its image is handed to the
+    optional image sink before the slot is released, so memory stays bounded for long or
+    large documents. A failed page yields an `extraction_failed` record and does not
     affect its siblings.
     """
 
@@ -50,27 +50,59 @@ class DocumentPipeline:
         self._extract = extractor
         self._semaphore = asyncio.Semaphore(max_concurrency)
 
-    async def process(self, file_bytes: bytes, file_type: FileType) -> list[ExtractedRecord]:
-        return [page.record for page in await self.process_pages(file_bytes, file_type)]
+    async def process(
+        self, file_bytes: bytes, file_type: FileType, image_sink: Optional[PageImageSink] = None
+    ) -> list[ExtractedRecord]:
+        """Extract one record per page, in page order.
 
-    async def process_pages(self, file_bytes: bytes, file_type: FileType) -> list[ProcessedPage]:
-        """Like `process`, but also returns each page image the record was extracted from."""
-        if file_type is FileType.pdf:
-            images = await asyncio.to_thread(convert_pdf_to_images, file_bytes)
-        else:
-            images = [file_bytes]
-        records = await asyncio.gather(
-            *(self._process_page(image, number) for number, image in enumerate(images, start=1))
+        When `image_sink` is given, each page image is passed to it and the returned
+        storage key is set as the record's `image_path`.
+        """
+        if file_type is not FileType.pdf:
+
+            async def original_image(_page_number: int) -> bytes:
+                return file_bytes
+
+            return await self._process_all(1, original_image, image_sink)
+
+        pages = await asyncio.to_thread(open_pdf, file_bytes)
+        with pages:
+
+            async def rendered_page(page_number: int) -> bytes:
+                return await asyncio.to_thread(pages.render_png, page_number)
+
+            return await self._process_all(pages.page_count, rendered_page, image_sink)
+
+    async def _process_all(
+        self, page_count: int, load_image: PageLoader, image_sink: Optional[PageImageSink]
+    ) -> list[ExtractedRecord]:
+        return list(
+            await asyncio.gather(
+                *(self._process_page(number, load_image, image_sink) for number in range(1, page_count + 1))
+            )
         )
-        return [ProcessedPage(record=record, image=image) for record, image in zip(records, images)]
 
-    async def _process_page(self, image_bytes: bytes, page_number: int) -> ExtractedRecord:
+    async def _process_page(
+        self, page_number: int, load_image: PageLoader, image_sink: Optional[PageImageSink]
+    ) -> ExtractedRecord:
         async with self._semaphore:
             try:
-                return await self._extract(image_bytes, page_number)
-            except ExtractionError as exc:
-                logger.warning("Extraction failed for page %d (%s)", page_number, exc.code)
-                return build_failed_record(page_number, exc.code)
-            except Exception:
-                logger.exception("Unexpected error while processing page %d", page_number)
-                return build_failed_record(page_number, "processing_error")
+                image = await load_image(page_number)
+            except PDFProcessingError:
+                logger.warning("Rendering failed for page %d", page_number)
+                return build_failed_record(page_number, RENDER_FAILED_REASON)
+            record = await self._extract_page(image, page_number)
+            if image_sink is not None:
+                key = await asyncio.to_thread(image_sink, page_number, image)
+                record = record.model_copy(update={"image_path": key})
+            return record
+
+    async def _extract_page(self, image_bytes: bytes, page_number: int) -> ExtractedRecord:
+        try:
+            return await self._extract(image_bytes, page_number)
+        except ExtractionError as exc:
+            logger.warning("Extraction failed for page %d (%s)", page_number, exc.code)
+            return build_failed_record(page_number, exc.code)
+        except Exception:
+            logger.exception("Unexpected error while processing page %d", page_number)
+            return build_failed_record(page_number, "processing_error")

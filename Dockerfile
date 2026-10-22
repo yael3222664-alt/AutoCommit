@@ -22,6 +22,11 @@ COPY --from=frontend /app/frontend/dist frontend/dist
 RUN useradd --system --uid 10001 --no-create-home autocommit
 USER autocommit
 
+# Large page buffers are mmap'd so freed memory returns to the OS instead of fragmenting
+# the heap; few malloc arenas keep the worker threads from each holding their own.
+ENV MALLOC_MMAP_THRESHOLD_=131072 \
+    MALLOC_ARENA_MAX=2
+
 ENV ENVIRONMENT=production \
     DEBUG=false \
     FRONTEND_DIST_DIR=/app/frontend/dist \

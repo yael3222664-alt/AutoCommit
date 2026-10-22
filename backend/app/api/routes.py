@@ -12,8 +12,8 @@ from sqlalchemy.orm import Session
 
 from ..config import Settings, get_settings
 from ..db.session import get_db_session
-from ..schemas import ExtractedRecord, RecordListResponse, RecordResponse, RecordStatus, RecordUpdateSchema
-from ..services.document_pipeline import DocumentPipeline, ProcessedPage
+from ..schemas import RecordListResponse, RecordResponse, RecordStatus, RecordUpdateSchema
+from ..services.document_pipeline import DocumentPipeline, PageImageSink
 from ..services.extractor_service import extract_record_from_image
 from ..services.ingestion_service import (
     EmptyUploadError,
@@ -68,23 +68,21 @@ def get_page_image_store() -> PageImageStore:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Page image storage is not configured") from exc
 
 
-def _store_page_images(images: PageImageStore, document_id: str, pages: list[ProcessedPage]) -> list[ExtractedRecord]:
-    """Persist each page image and link it from its record.
+def _page_image_sink(images: PageImageStore, document_id: str) -> PageImageSink:
+    """Persist each page image as soon as its page is processed.
 
     A page whose image could not be stored keeps `image_path=None`; its record and its
     siblings are still saved, and re-uploading the document links the missing image.
     """
-    records = []
-    for page in pages:
+
+    def store(page_number: int, image: bytes) -> Optional[str]:
         try:
-            key = images.save(document_id, page.record.page_number, page.image)
+            return images.save(document_id, page_number, image)
         except (OSError, PageImageError) as exc:
-            logger.warning(
-                "Could not store image for page %d (%s: %s)", page.record.page_number, type(exc).__name__, exc
-            )
-            key = None
-        records.append(page.record.model_copy(update={"image_path": key}))
-    return records
+            logger.warning("Could not store image for page %d (%s: %s)", page_number, type(exc).__name__, exc)
+            return None
+
+    return store
 
 
 def get_record_service(session: Session = Depends(get_db_session)) -> RecordService:
@@ -121,13 +119,12 @@ async def upload_document(
     except UnsupportedFileTypeError as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
 
+    document_id = hashlib.sha256(data).hexdigest()
     try:
-        pages = await pipeline.process_pages(data, file_type)
+        extracted = await pipeline.process(data, file_type, image_sink=_page_image_sink(images, document_id))
     except PDFProcessingError as exc:
         raise HTTPException(422, str(exc)) from exc
 
-    document_id = hashlib.sha256(data).hexdigest()
-    extracted = await run_in_threadpool(_store_page_images, images, document_id, pages)
     try:
         record_ids = await run_in_threadpool(records.save_records, extracted, document_id)
     except SQLAlchemyError as exc:
