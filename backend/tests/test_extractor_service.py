@@ -175,6 +175,18 @@ def test_prompt_asks_for_the_grid_that_is_converted():
     assert "integers from 0 to 1000" in SYSTEM_PROMPT
 
 
+def test_prompt_enforces_anti_hallucination_rules():
+    for phrase in [
+        "Evidence before assignment",
+        "Preserve every occurrence",
+        "Separate sources",
+        "Verify before answering",
+        "receiving laboratory is never the sending organization",
+        "do not pick the more plausible",
+    ]:
+        assert phrase in SYSTEM_PROMPT
+
+
 def test_prompt_restricts_sender_to_the_closed_entity_list():
     for entity in SENDING_ENTITIES:
         assert entity in SYSTEM_PROMPT

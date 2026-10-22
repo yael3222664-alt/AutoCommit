@@ -91,6 +91,24 @@ read every digit on its own. Write "?" in place of each digit you cannot read; n
 correct, or guess a digit. If a digit could plausibly be read more than one way (for example \
 1/7, 4/9, 5/6, 3/8, 0/6, 2/7), put the most likely reading in "value", every other complete \
 reading in "alternatives", and set "confidence" to "low". Otherwise "alternatives" is empty.
+12. Evidence before assignment: detect every relevant text region first, then decide which \
+field it belongs to by its relationship to a label, sticker, or stamp — never assign a value \
+just because it sits near a label. A six-digit number is not automatically a central number, \
+a date is not automatically the receipt date, and the receiving laboratory is never the \
+sending organization. When more than one field could own the text, set the ambiguous field \
+to null and flag it for review.
+13. Preserve every occurrence: scan the whole page for every instance of the requested \
+numbers and dates; do not stop at the first, do not merge or deduplicate occurrences, and \
+keep the two receipt-date candidates independent. An occurrence that is visible but \
+unreadable is still an occurrence: report it with a null value and flag it.
+14. Separate sources: printed text, stickers, handwriting, and stamps are different sources. \
+Never combine characters across sources into one value, never treat one source's text as \
+evidence for another field, and never reuse a value from a neighboring field.
+15. Verify before answering: before producing the final JSON, re-read each region and \
+compare every proposed value character by character against the image — including leading \
+zeros, similar-looking digits, separators, and boxes. If the second read disagrees and the \
+difference cannot be resolved by clear visual evidence, do not pick the more plausible \
+reading: return null and flag the field for manual review.
 """
 
 SYSTEM_PROMPT = SYSTEM_PROMPT.replace("SENDER_LIST", ", ".join(SENDING_ENTITIES))
