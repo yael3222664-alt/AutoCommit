@@ -2,8 +2,11 @@ import { useMemo } from "react";
 
 import { fieldText, isFieldEdited, type DraftState, type FieldEdits } from "../review/drafts";
 import {
+  AMBIGUOUS_LABEL,
   CENTRAL_NUMBER_LABEL,
   COMMITMENT_NUMBER_LABEL,
+  CONFIDENCE_BADGE_LABELS,
+  CONFIDENCE_LABELS,
   FIELD_LABELS,
   STATUS_LABELS,
   fieldNeedsAttention,
@@ -119,6 +122,15 @@ function RecordRow({ record, edits, save, active, activeKey, onSelect, onFocusFi
             }
           }}
         />
+        {field && field.confidence !== "high" && !edited && (
+          <span
+            className={`conf-badge conf-${field.confidence}${field.ambiguous ? " ambiguous" : ""}`}
+            title={field.ambiguous ? AMBIGUOUS_LABEL : undefined}
+            aria-label={`רמת ביטחון: ${CONFIDENCE_LABELS[field.confidence]}`}
+          >
+            {field.ambiguous ? "?" : CONFIDENCE_BADGE_LABELS[field.confidence]}
+          </span>
+        )}
         {(attention || edited) && (
           <span className="cell-badge" aria-hidden="true">
             {edited ? "✓" : "!"}

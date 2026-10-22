@@ -1,7 +1,14 @@
 import type { FormEvent } from "react";
 
 import { buildFieldPatch, fieldText, type FieldEdits } from "../review/drafts";
-import { STATUS_LABELS, type GroundedField, type TextFieldName } from "../review/groundedFields";
+import {
+  AMBIGUOUS_LABEL,
+  CONFIDENCE_BADGE_LABELS,
+  CONFIDENCE_LABELS,
+  STATUS_LABELS,
+  type GroundedField,
+  type TextFieldName,
+} from "../review/groundedFields";
 import type { EditableRecordStatus, RecordResponse, RecordUpdatePayload } from "../types/record";
 
 export interface ReviewFormProps {
@@ -56,6 +63,15 @@ export function ReviewForm(props: ReviewFormProps) {
             >
               <label htmlFor={id}>
                 {field.label}
+                {field.confidence !== "high" && (
+                  <span
+                    className={`conf-badge conf-${field.confidence}${field.ambiguous ? " ambiguous" : ""}`}
+                    title={field.ambiguous ? AMBIGUOUS_LABEL : undefined}
+                    aria-label={`רמת ביטחון: ${CONFIDENCE_LABELS[field.confidence]}`}
+                  >
+                    {field.ambiguous ? `${CONFIDENCE_BADGE_LABELS[field.confidence]} · ${AMBIGUOUS_LABEL}` : CONFIDENCE_BADGE_LABELS[field.confidence]}
+                  </span>
+                )}
                 {!field.box && <span className="no-box-hint"> · אין מיקום חזותי זמין</span>}
               </label>
               <input

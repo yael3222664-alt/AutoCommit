@@ -33,6 +33,8 @@ export interface GroundedField {
   box: BoundingBox | null;
   /** Set for fields edited through the form's text inputs. */
   textField: TextFieldName | null;
+  /** True when the extractor kept conflicting readings (candidates). */
+  ambiguous: boolean;
 }
 
 function onPage(box: BoundingBox | null, pageNumber: number): BoundingBox | null {
@@ -54,6 +56,7 @@ export function getGroundedFields(record: RecordResponse): GroundedField[] {
       confidence: field.confidence,
       box: onPage(field.box, page),
       textField: name,
+      ambiguous: (field.candidates?.length ?? 0) > 0,
     };
   });
   const central = record.central_numbers.map((item, index): GroundedField => ({
@@ -63,6 +66,7 @@ export function getGroundedFields(record: RecordResponse): GroundedField[] {
     confidence: item.confidence,
     box: onPage(item.box, page),
     textField: null,
+    ambiguous: false,
   }));
   const commitments = record.commitment_numbers.map((item, index): GroundedField => ({
     key: `commitment_numbers.${index}`,
@@ -71,6 +75,7 @@ export function getGroundedFields(record: RecordResponse): GroundedField[] {
     confidence: item.confidence,
     box: onPage(item.box, page),
     textField: null,
+    ambiguous: false,
   }));
   return [...textFields, ...central, ...commitments];
 }
@@ -80,6 +85,15 @@ export const CONFIDENCE_LABELS: Readonly<Record<ConfidenceLevel, string>> = {
   medium: "ביטחון בינוני",
   low: "ביטחון נמוך",
 };
+
+/** Short badges shown next to fields; high confidence gets no badge. */
+export const CONFIDENCE_BADGE_LABELS: Readonly<Record<ConfidenceLevel, string>> = {
+  high: "",
+  medium: "בינוני",
+  low: "נמוך",
+};
+
+export const AMBIGUOUS_LABEL = "קריאות מתחרות";
 
 export const STATUS_LABELS: Readonly<Record<RecordStatus, string>> = {
   pending_review: "ממתין לבדיקה",

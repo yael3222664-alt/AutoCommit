@@ -93,8 +93,10 @@ describe("ReviewForm", () => {
     const html = renderToStaticMarkup(<ReviewForm {...props} />);
     expect(html.match(/<input/g)).toHaveLength(fields.length);
     expect(html).toContain('class="form-field active"><label for="field-first_name">');
-    expect(html).toContain('<label for="field-last_name">שם משפחה<span class="no-box-hint"> · אין מיקום חזותי זמין</span>');
-    expect(html).not.toContain('<label for="field-first_name">שם פרטי<span');
+    expect(html).toContain('<label for="field-last_name">שם משפחה<span class="conf-badge conf-low"');
+    expect(html).toContain('aria-label="רמת ביטחון: ביטחון נמוך"');
+    expect(html).toContain('<span class="no-box-hint"> · אין מיקום חזותי זמין</span>');
+    expect(html).not.toContain('<label for="field-first_name">שם פרטי<span'); // high confidence: no badge
   });
 
   it("makes fields read-only on an approved record", () => {
