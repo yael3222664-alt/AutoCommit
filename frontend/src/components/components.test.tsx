@@ -231,7 +231,7 @@ describe("Footer", () => {
     expect(html).toContain('src="/logo.png"');
     expect(html).toContain('href="https://github.com/yael3222664-alt"');
     expect(html).toContain("YAEL COHEN");
-    expect(html).toContain('href="https://autocommit-bw6k.onrender.com/"');
+    expect(html).toContain('href="https://github.com/9697-mali-lo"');
     expect(html).toContain("MALKA LORENTS");
     expect(html).toContain('href="mailto:yael3222664@gmail.com"');
     expect(html).toContain('href="mailto:6719697@gmail.com"');

@@ -1,6 +1,6 @@
 const CREATORS = [
   { name: "YAEL COHEN", url: "https://github.com/yael3222664-alt" },
-  { name: "MALKA LORENTS", url: "https://autocommit-bw6k.onrender.com/" },
+  { name: "MALKA LORENTS", url: "https://github.com/9697-mali-lo" },
 ];
 
 const CONTACT_EMAILS = ["yael3222664@gmail.com", "6719697@gmail.com"];
