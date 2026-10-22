@@ -23,7 +23,7 @@ export function LoginScreen({ submitting, error, onSubmit }: LoginScreenProps) {
   return (
     <main className="auth-screen">
       <form className="auth-card" onSubmit={submit} aria-label="כניסה">
-        <h1 className="auth-title">AutoCommit</h1>
+        <h1 className="auth-title"><img className="auth-logo" src="/logo.png" alt="YMCL" /></h1>
         <label className="auth-label" htmlFor="auth-password">סיסמה</label>
         <input
           id="auth-password"

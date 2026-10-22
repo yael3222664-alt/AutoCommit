@@ -62,7 +62,9 @@ export function Toolbar(props: ToolbarProps) {
 
   return (
     <header className="toolbar">
-      <h1 className="toolbar-brand">AutoCommit</h1>
+      <h1 className="toolbar-brand">
+        <img className="brand-logo" src="/logo.png" alt="YMCL" />
+      </h1>
       <input
         type="search"
         className="toolbar-search"
