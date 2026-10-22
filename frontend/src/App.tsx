@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { InspectionPanel } from "./components/InspectionPanel";
 import { RecordsTable } from "./components/RecordsTable";
 import { ReviewForm } from "./components/ReviewForm";
+import { Footer } from "./components/Footer";
 import { Toolbar } from "./components/Toolbar";
 import { useRecordState, useRecordStore } from "./context/RecordStoreContext";
 import { buildFieldPatch, createDraftStore, pendingRecords } from "./review/drafts";
@@ -174,6 +175,7 @@ export function App() {
           />
         )}
       </main>
+      <Footer />
     </div>
   );
 }

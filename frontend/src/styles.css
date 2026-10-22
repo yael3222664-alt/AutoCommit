@@ -341,3 +341,17 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   border: var(--border-width) solid var(--color-border-strong); border-radius: var(--radius-pill); background: var(--color-surface); color: var(--color-text-muted); box-shadow: var(--shadow-sm);
 }
 .logout-button:hover { color: var(--color-text); background: var(--color-surface-hover); }
+
+/* Footer */
+.app-footer {
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-2);
+  padding-block: var(--space-6); padding-inline: var(--space-5);
+  margin-block-start: auto;
+  border-block-start: var(--border-width) solid var(--color-border);
+  background: var(--color-surface-muted); text-align: center;
+}
+.footer-logo { display: block; height: 40px; width: auto; }
+.footer-credits { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.footer-contact { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-subtle); }
+.app-footer a { color: var(--color-action); text-decoration: none; }
+.app-footer a:hover { color: var(--color-action-hover); text-decoration: underline; }

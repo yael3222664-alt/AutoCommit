@@ -5,6 +5,7 @@ import { getGroundedFields } from "../review/groundedFields";
 import { makeRecord } from "../test/fixtures";
 import { LoginScreen } from "./AuthGate";
 import { DocumentViewer } from "./DocumentViewer";
+import { Footer } from "./Footer";
 import { RecordsTable } from "./RecordsTable";
 import { ReviewForm } from "./ReviewForm";
 import { NO_LOCATION_TEXT, SnippetPreview } from "./SnippetPreview";
@@ -220,5 +221,26 @@ describe("LoginScreen", () => {
     expect(html).toContain("הסיסמה שגויה");
     expect(html).toContain("מתחבר…");
     expect(html).toMatch(/<input[^>]*disabled/);
+  });
+});
+
+
+describe("Footer", () => {
+  it("renders the logo, creator links, and mailto contacts", () => {
+    const html = renderToStaticMarkup(<Footer />);
+    expect(html).toContain('src="/logo.png"');
+    expect(html).toContain('href="https://github.com/yael3222664-alt"');
+    expect(html).toContain("YAEL COHEN");
+    expect(html).toContain('href="https://autocommit-bw6k.onrender.com/"');
+    expect(html).toContain("MALKA LORENTS");
+    expect(html).toContain('href="mailto:yael3222664@gmail.com"');
+    expect(html).toContain('href="mailto:6719697@gmail.com"');
+  });
+
+  it("is not sticky or fixed", () => {
+    const html = renderToStaticMarkup(<Footer />);
+    expect(html).toContain('class="app-footer"');
+    expect(html).not.toContain("sticky");
+    expect(html).not.toContain("fixed");
   });
 });
