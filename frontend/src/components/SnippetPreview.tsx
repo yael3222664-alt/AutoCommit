@@ -28,6 +28,8 @@ export interface SnippetPreviewProps {
   padding?: number;
   /** What the extraction read for this field, before any manual edit. */
   reading?: string | null;
+  /** Conflicting readings the extraction could not choose between. */
+  candidates?: string[];
   confidence?: ConfidenceLevel | null;
 }
 
@@ -39,6 +41,7 @@ export function SnippetPreview({
   zoom = DEFAULT_SNIPPET_ZOOM,
   padding = DEFAULT_SNIPPET_PADDING,
   reading = null,
+  candidates = [],
   confidence = null,
 }: SnippetPreviewProps) {
   const boxError = box ? getBoxValidationError(box) : null;
@@ -75,6 +78,11 @@ export function SnippetPreview({
             המנוע קרא: <bdi>{reading ?? "—"}</bdi>
           </span>
           {confidence && <span className={`badge confidence-badge confidence-${confidence}`}>{CONFIDENCE_LABELS[confidence]}</span>}
+          {candidates.length > 0 && (
+            <span className="snippet-candidates">
+              קריאות אפשריות: {candidates.map((text) => <bdi key={text}>{text}</bdi>)}
+            </span>
+          )}
         </footer>
       )}
     </section>

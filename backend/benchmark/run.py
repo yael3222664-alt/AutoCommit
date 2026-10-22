@@ -24,15 +24,25 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
-from typing import Optional
 
 from ..app.config import get_settings
 from ..app.schemas import ExtractedRecord, RecordStatus
 from ..app.services.document_pipeline import DocumentPipeline, build_failed_record
 from ..app.services.extractor_service import extract_record_from_image
 from ..app.services.ingestion_service import validate_upload
-from ..app.services.vision_provider import VisionProviderNotConfiguredError, get_vision_provider
-from .ground_truth import GroundTruth, TruthDocument, TruthField, TruthItem, TruthPage, TruthBox, load_ground_truth
+from ..app.services.vision_provider import (
+    VisionProviderNotConfiguredError,
+    get_vision_provider,
+)
+from .ground_truth import (
+    GroundTruth,
+    TruthBox,
+    TruthDocument,
+    TruthField,
+    TruthItem,
+    TruthPage,
+    load_ground_truth,
+)
 from .report import build_json_report, render_markdown
 from .scoring import DEFAULT_IOU_THRESHOLD, PageResult, score_page, summarize
 
@@ -126,7 +136,7 @@ def write_reports(out_dir: Path, report: dict, markdown: str) -> None:
     (out_dir / "report.md").write_text(markdown, encoding="utf-8")
 
 
-def main(argv: Optional[list[str]] = None, extractor: Optional[PageExtractor] = None) -> int:
+def main(argv: list[str] | None = None, extractor: PageExtractor | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("manifest", type=Path)
     parser.add_argument("--out", type=Path, help="report directory (default: backend/data/benchmark/<timestamp>)")
@@ -134,6 +144,11 @@ def main(argv: Optional[list[str]] = None, extractor: Optional[PageExtractor] = 
     parser.add_argument("--include-values", action="store_true", help="put field values in the report (PHI)")
     parser.add_argument("--include-unverified", action="store_true", help="also score pages marked unverified")
     parser.add_argument("--draft-ground-truth", type=Path, help="write a draft manifest from the extraction")
+    parser.add_argument(
+        "--no-field-recheck",
+        action="store_true",
+        help="disable the targeted re-read of doubtful ID numbers and dates (baseline comparison)",
+    )
     args = parser.parse_args(argv)
 
     settings = get_settings()
@@ -141,7 +156,11 @@ def main(argv: Optional[list[str]] = None, extractor: Optional[PageExtractor] = 
     provider_name, model = settings.VISION_PROVIDER, settings.GEMINI_MODEL
     if extractor is None:
         try:
-            extractor = partial(extract_record_from_image, provider=get_vision_provider(settings))
+            extractor = partial(
+                extract_record_from_image,
+                provider=get_vision_provider(settings),
+                recheck_fields=not args.no_field_recheck,
+            )
         except VisionProviderNotConfiguredError as exc:
             print(f"Vision provider not configured: {exc}", file=sys.stderr)
             return 2
@@ -180,6 +199,7 @@ def main(argv: Optional[list[str]] = None, extractor: Optional[PageExtractor] = 
     metadata = {
         "provider": provider_name,
         "model": model,
+        "field_recheck": not args.no_field_recheck,
         "started_at": started_at,
         "documents": len(runs),
         "skipped_unverified_pages": skipped,

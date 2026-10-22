@@ -11,7 +11,10 @@ from backend.app.services.extractor_service import (
     ExtractionError,
     extract_record_from_image,
 )
-from backend.app.services.vision_provider import VisionProviderError, VisionProviderTimeoutError
+from backend.app.services.vision_provider import (
+    VisionProviderError,
+    VisionProviderTimeoutError,
+)
 from backend.tests.fakes import (
     JPEG_BYTES,
     PNG_BYTES,

@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -32,24 +32,26 @@ class BoundingBox(BaseModel):
 
 
 class FieldValue(BaseModel):
-    value: Optional[str] = None
+    value: str | None = None
     confidence: ConfidenceLevel = ConfidenceLevel.low
-    box: Optional[BoundingBox] = None
-    raw_value: Optional[str] = None  # text as read, before normalization
+    box: BoundingBox | None = None
+    raw_value: str | None = None  # text as read, before normalization
+    # Conflicting readings of the field; set (with value None) when they could not be reconciled.
+    candidates: list[str] = []
 
 
 class CentralNumberItem(BaseModel):
     value: str
     confidence: ConfidenceLevel
-    source: Optional[str] = None  # e.g. "sticker", "handwritten"
-    box: Optional[BoundingBox] = None
+    source: str | None = None  # e.g. "sticker", "handwritten"
+    box: BoundingBox | None = None
 
 
 class CommitmentNumberItem(BaseModel):
     value: str
     confidence: ConfidenceLevel
-    label_type: Optional[str] = None  # e.g. "commitment", "order", "sample"
-    box: Optional[BoundingBox] = None
+    label_type: str | None = None  # e.g. "commitment", "order", "sample"
+    box: BoundingBox | None = None
 
 
 class RecordStatus(str, Enum):
@@ -61,7 +63,7 @@ class RecordStatus(str, Enum):
 
 class ExtractedRecord(BaseModel):
     page_number: int = Field(default=1, ge=1)
-    image_path: Optional[str] = None
+    image_path: str | None = None
     first_name: FieldValue
     last_name: FieldValue
     id_number: FieldValue
@@ -88,7 +90,7 @@ class RecordListResponse(BaseModel):
     offset: int
 
 
-def _strip_or_none(value: Optional[str]) -> Optional[str]:
+def _strip_or_none(value: str | None) -> str | None:
     if value is None:
         return None
     return value.strip() or None
@@ -105,7 +107,7 @@ class CentralNumberUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     value: str
-    source: Optional[str] = None
+    source: str | None = None
 
     _strip_value = field_validator("value")(_strip_required)
     _strip = field_validator("source")(_strip_or_none)
@@ -115,7 +117,7 @@ class CommitmentNumberUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     value: str
-    label_type: Optional[str] = None
+    label_type: str | None = None
 
     _strip_value = field_validator("value")(_strip_required)
     _strip = field_validator("label_type")(_strip_or_none)
@@ -130,14 +132,14 @@ class RecordUpdateSchema(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    id_number: Optional[str] = None
-    received_date: Optional[str] = None
-    sender: Optional[str] = None
-    central_numbers: Optional[list[CentralNumberUpdate]] = None
-    commitment_numbers: Optional[list[CommitmentNumberUpdate]] = None
-    status: Optional[Literal["pending_review", "approved", "rejected"]] = None
+    first_name: str | None = None
+    last_name: str | None = None
+    id_number: str | None = None
+    received_date: str | None = None
+    sender: str | None = None
+    central_numbers: list[CentralNumberUpdate] | None = None
+    commitment_numbers: list[CommitmentNumberUpdate] | None = None
+    status: Literal["pending_review", "approved", "rejected"] | None = None
 
     _strip = field_validator("first_name", "last_name", "id_number", "received_date", "sender")(_strip_or_none)
 

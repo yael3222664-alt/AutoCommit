@@ -2,7 +2,6 @@
 
 Messages name settings only; they never include configured values.
 """
-from typing import Optional, Union
 
 from pydantic import SecretStr
 from sqlalchemy.engine import make_url
@@ -20,7 +19,7 @@ class StartupConfigurationError(RuntimeError):
     """The configured settings are unsafe or incomplete for this environment."""
 
 
-def _raw(value: Union[str, SecretStr, None]) -> Optional[str]:
+def _raw(value: str | SecretStr | None) -> str | None:
     if isinstance(value, SecretStr):
         return value.get_secret_value()
     return value

@@ -4,7 +4,7 @@ import asyncio
 import base64
 import threading
 from collections.abc import Awaitable, Callable
-from typing import Any, Optional, Protocol
+from typing import Any, Protocol
 
 import httpx
 
@@ -82,7 +82,7 @@ class GeminiVisionProvider:
         model: str,
         base_url: str,
         timeout_seconds: float,
-        client: Optional[httpx.AsyncClient] = None,
+        client: httpx.AsyncClient | None = None,
         max_retries: int = 0,
         retry_base_delay_seconds: float = 2.0,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -214,7 +214,7 @@ class RotatingGeminiProvider:
             f"All {len(self._providers)} Gemini API keys exhausted their quota"
         )
 
-    def _next_index(self) -> Optional[int]:
+    def _next_index(self) -> int | None:
         with self._lock:
             if len(self._exhausted) == len(self._providers):
                 return None

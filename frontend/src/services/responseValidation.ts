@@ -37,6 +37,12 @@ function nullableString(value: unknown, path: string): string | null {
   return value === null || value === undefined ? null : string(value, path);
 }
 
+function stringList(value: unknown, path: string): string[] {
+  if (value === null || value === undefined) return [];
+  if (!Array.isArray(value)) throw new ResponseShapeError(path, "list of strings");
+  return value.map((item, index) => string(item, `${path}[${index}]`));
+}
+
 function finiteNumber(value: unknown, path: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) throw new ResponseShapeError(path, "finite number");
   return value;
@@ -96,6 +102,7 @@ function fieldValue(value: unknown, path: string): FieldValue {
     confidence: confidence(raw.confidence ?? "low", `${path}.confidence`),
     box: boundingBox(raw.box, `${path}.box`),
     raw_value: nullableString(raw.raw_value, `${path}.raw_value`),
+    candidates: stringList(raw.candidates, `${path}.candidates`),
   };
 }
 

@@ -34,7 +34,7 @@ const RECORD_RESPONSE_KEYS = keyList<RecordResponse>({
   first_name: true, last_name: true, id_number: true, central_numbers: true, received_date: true, sender: true,
   commitment_numbers: true, requires_manual_review: true, review_reasons: true, status: true,
 });
-const FIELD_VALUE_KEYS = keyList<FieldValue>({ value: true, confidence: true, box: true, raw_value: true });
+const FIELD_VALUE_KEYS = keyList<FieldValue>({ value: true, confidence: true, box: true, raw_value: true, candidates: true });
 const BOX_KEYS = keyList<BoundingBox>({ ymin: true, xmin: true, ymax: true, xmax: true, page_number: true });
 const CENTRAL_KEYS = keyList<CentralNumberItem>({ value: true, confidence: true, source: true, box: true });
 const COMMITMENT_KEYS = keyList<CommitmentNumberItem>({ value: true, confidence: true, label_type: true, box: true });
@@ -185,10 +185,10 @@ describe("end-to-end record lifecycle", () => {
     expect(page1.requires_manual_review).toBe(true);
     expect(page1.review_reasons).toEqual(["last_name_missing", "flagged_by_model"]);
     expect(page1.first_name).toEqual({
-      value: "דנה", confidence: "high", raw_value: null, // raw_value is kept only for normalized fields
+      value: "דנה", confidence: "high", raw_value: null, candidates: [], // raw_value is kept only for normalized fields
       box: { ymin: 0.1, xmin: 0.55, ymax: 0.14, xmax: 0.9, page_number: 1 },
     });
-    expect(page1.last_name).toEqual({ value: null, confidence: "low", box: null, raw_value: null });
+    expect(page1.last_name).toEqual({ value: null, confidence: "low", box: null, raw_value: null, candidates: [] });
     expect(page1.id_number.value).toBe("012345674");
     expect(page1.received_date.value).toBe("2024-03-05");
     expect(page1.received_date.raw_value).toBe("05/03/2024");
@@ -204,7 +204,7 @@ describe("end-to-end record lifecycle", () => {
     expect(page2.requires_manual_review).toBe(true);
     expect(page2.review_reasons).toEqual(["provider_error"]);
     for (const name of TEXT_FIELDS) {
-      expect(page2[name]).toEqual({ value: null, confidence: "low", box: null, raw_value: null });
+      expect(page2[name]).toEqual({ value: null, confidence: "low", box: null, raw_value: null, candidates: [] });
     }
     expect(page2.central_numbers).toEqual([]);
 

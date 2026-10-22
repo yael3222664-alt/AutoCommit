@@ -38,8 +38,9 @@ def provider_json(payload: dict) -> str:
 
 
 class FakeVisionProvider:
-    def __init__(self, response=None, error: Exception | None = None):
+    def __init__(self, response=None, error: Exception | None = None, responses: list | None = None):
         self.response = provider_json(valid_payload()) if response is None else response
+        self.responses = list(responses) if responses is not None else None
         self.error = error
         self.calls: list[dict] = []
 
@@ -47,6 +48,10 @@ class FakeVisionProvider:
         self.calls.append(kwargs)
         if self.error is not None:
             raise self.error
+        if self.responses is not None:
+            if not self.responses:
+                raise VisionProviderError("no scripted response left")
+            return self.responses.pop(0)
         return self.response
 
 

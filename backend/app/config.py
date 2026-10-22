@@ -1,6 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -34,15 +34,15 @@ class Settings(BaseSettings):
 
     # Shared-password login guarding every /api route except health and auth.
     AUTH_ENABLED: bool = False
-    APP_ACCESS_PASSWORD: Optional[SecretStr] = None
+    APP_ACCESS_PASSWORD: SecretStr | None = None
     # HMAC key for session cookies; rotating it signs everyone out.
-    SESSION_SECRET: Optional[SecretStr] = None
+    SESSION_SECRET: SecretStr | None = None
     SESSION_MAX_AGE_SECONDS: int = Field(default=12 * 3600, ge=300)
     LOGIN_MAX_FAILURES: int = Field(default=5, ge=1)
     LOGIN_FAILURE_WINDOW_SECONDS: int = Field(default=300, ge=1)
 
     # Built frontend (frontend/dist) served by the API in single-service deployments.
-    FRONTEND_DIST_DIR: Optional[Path] = None
+    FRONTEND_DIST_DIR: Path | None = None
 
     MAX_UPLOAD_SIZE_MB: int = Field(default=20, ge=1)
 
@@ -53,10 +53,10 @@ class Settings(BaseSettings):
     VISION_MAX_RETRIES: int = Field(default=3, ge=0)
     # One targeted re-read of a cropped ID number or date that is invalid, ambiguous, or unreadable.
     FIELD_RECHECK_ENABLED: bool = True
-    GEMINI_API_KEY: Optional[SecretStr] = None
+    GEMINI_API_KEY: SecretStr | None = None
     # Optional comma-separated list of keys; takes precedence over GEMINI_API_KEY. When a
     # key's quota is exhausted the next key is used, wrapping around after quota resets.
-    GEMINI_API_KEYS: Optional[SecretStr] = None
+    GEMINI_API_KEYS: SecretStr | None = None
     GEMINI_MODEL: str = "gemini-3.5-flash"
     GEMINI_API_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -75,8 +75,8 @@ class Settings(BaseSettings):
     # Where rendered page images are kept: "local" (PAGE_IMAGE_DIR) or "supabase" (private bucket).
     PAGE_IMAGE_STORAGE: Literal["local", "supabase"] = "local"
     PAGE_IMAGE_DIR: Path = BACKEND_DIR / "data" / "pages"
-    SUPABASE_URL: Optional[str] = None
-    SUPABASE_SERVICE_ROLE_KEY: Optional[SecretStr] = None
+    SUPABASE_URL: str | None = None
+    SUPABASE_SERVICE_ROLE_KEY: SecretStr | None = None
     SUPABASE_STORAGE_BUCKET: str = "page-images"
     STORAGE_TIMEOUT_SECONDS: float = Field(default=15.0, gt=0)
     STORAGE_MAX_RETRIES: int = Field(default=3, ge=0)

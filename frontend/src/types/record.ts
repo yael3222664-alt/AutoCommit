@@ -30,6 +30,8 @@ export interface FieldValue {
   box: BoundingBox | null;
   /** Text as read before normalization, kept for auditing. */
   raw_value: string | null;
+  /** Conflicting readings left unresolved for the reviewer. */
+  candidates?: string[];
 }
 
 export interface CentralNumberItem {

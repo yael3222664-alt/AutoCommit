@@ -2,7 +2,6 @@ import hashlib
 import logging
 from datetime import datetime
 from functools import lru_cache, partial
-from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
@@ -12,7 +11,12 @@ from sqlalchemy.orm import Session
 
 from ..config import Settings, get_settings
 from ..db.session import get_db_session
-from ..schemas import RecordListResponse, RecordResponse, RecordStatus, RecordUpdateSchema
+from ..schemas import (
+    RecordListResponse,
+    RecordResponse,
+    RecordStatus,
+    RecordUpdateSchema,
+)
 from ..services.document_pipeline import DocumentPipeline, PageImageSink
 from ..services.extractor_service import extract_record_from_image
 from ..services.ingestion_service import (
@@ -21,7 +25,11 @@ from ..services.ingestion_service import (
     UnsupportedFileTypeError,
     validate_upload,
 )
-from ..services.page_image_store import PageImageError, PageImageStorageError, PageImageStore
+from ..services.page_image_store import (
+    PageImageError,
+    PageImageStorageError,
+    PageImageStore,
+)
 from ..services.pdf_service import PDFProcessingError
 from ..services.record_service import (
     InvalidRecordUpdateError,
@@ -30,7 +38,10 @@ from ..services.record_service import (
     RecordService,
 )
 from ..services.storage_factory import StorageNotConfiguredError, build_page_image_store
-from ..services.vision_provider import VisionProviderNotConfiguredError, get_vision_provider
+from ..services.vision_provider import (
+    VisionProviderNotConfiguredError,
+    get_vision_provider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +55,9 @@ def _build_document_pipeline() -> DocumentPipeline:
     settings = get_settings()
     provider = get_vision_provider(settings)
     return DocumentPipeline(
-        extractor=partial(extract_record_from_image, provider=provider),
+        extractor=partial(
+            extract_record_from_image, provider=provider, recheck_fields=settings.FIELD_RECHECK_ENABLED
+        ),
         max_concurrency=settings.VISION_MAX_CONCURRENCY,
     )
 
@@ -75,7 +88,7 @@ def _page_image_sink(images: PageImageStore, document_id: str) -> PageImageSink:
     siblings are still saved, and re-uploading the document links the missing image.
     """
 
-    def store(page_number: int, image: bytes) -> Optional[str]:
+    def store(page_number: int, image: bytes) -> str | None:
         try:
             return images.save(document_id, page_number, image)
         except (OSError, PageImageError) as exc:
@@ -134,11 +147,11 @@ async def upload_document(
 
 @router.get("/records", response_model=RecordListResponse)
 def list_records(
-    status_filter: Optional[RecordStatus] = Query(None, alias="status"),
-    sender: Optional[str] = None,
-    requires_manual_review: Optional[bool] = None,
-    created_from: Optional[datetime] = None,
-    created_to: Optional[datetime] = None,
+    status_filter: RecordStatus | None = Query(None, alias="status"),
+    sender: str | None = None,
+    requires_manual_review: bool | None = None,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     records: RecordService = Depends(get_record_service),

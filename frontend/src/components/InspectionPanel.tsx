@@ -17,6 +17,11 @@ function readingOf(record: RecordResponse, field: GroundedField): string | null 
   return (field.textField && record[field.textField].raw_value) || field.value;
 }
 
+function candidatesOf(record: RecordResponse, field: GroundedField): string[] {
+  const fieldValue = field.textField && record[field.textField];
+  return fieldValue?.candidates ?? [];
+}
+
 /** Page image with grounding overlays, and the magnified crop of the active field. */
 export function InspectionPanel({ record, fields, activeField, onSelectField, onHoverField, onCollapse }: InspectionPanelProps) {
   const imageUrl = record.image_path ? recordImageUrl(record.id) : null;
@@ -43,6 +48,7 @@ export function InspectionPanel({ record, fields, activeField, onSelectField, on
         box={activeField?.box ?? null}
         label={activeField?.label ?? null}
         reading={activeField ? readingOf(record, activeField) : null}
+        candidates={activeField ? candidatesOf(record, activeField) : []}
         confidence={activeField?.confidence ?? null}
       />
     </aside>

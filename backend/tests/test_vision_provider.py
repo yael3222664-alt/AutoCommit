@@ -10,8 +10,8 @@ from backend.app.services.vision_provider import (
     GeminiVisionProvider,
     RotatingGeminiProvider,
     VisionProviderError,
-    VisionProviderQuotaError,
     VisionProviderNotConfiguredError,
+    VisionProviderQuotaError,
     VisionProviderTimeoutError,
     get_vision_provider,
 )

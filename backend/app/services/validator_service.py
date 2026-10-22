@@ -5,9 +5,9 @@ import unicodedata
 from collections.abc import Mapping
 from datetime import datetime
 from difflib import SequenceMatcher
-from typing import Any, Optional
+from typing import Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from ..constants import (
     SENDER_AMBIGUITY_MARGIN,
@@ -25,6 +25,11 @@ from ..schemas import (
 )
 
 ISRAELI_ID_LENGTH = 9
+# Fields read digit by digit from handwriting, eligible for one targeted re-read of their crop.
+RECHECK_FIELDS = ("id_number", "received_date_stamp", "received_date_handwritten")
+# The model writes this in place of each digit it cannot read.
+UNREADABLE_MARK = "?"
+MAX_ALTERNATIVES = 5
 _ID_SEPARATORS = re.compile(r"[\s-]")
 
 _DATE_FORMATS = (
@@ -44,7 +49,7 @@ _CONFIDENCE_RANK = {
 }
 
 
-def validate_israeli_id(id_str: Optional[str]) -> tuple[Optional[str], bool]:
+def validate_israeli_id(id_str: str | None) -> tuple[str | None, bool]:
     """Return the ID zero-padded to 9 digits and whether its check digit is valid.
 
     Cleaning removes only whitespace and hyphens. Padding is applied only to a cleaned
@@ -71,7 +76,7 @@ def validate_israeli_id(id_str: Optional[str]) -> tuple[Optional[str], bool]:
     return normalized, total % 10 == 0
 
 
-def normalize_date(date_str: Optional[str]) -> Optional[str]:
+def normalize_date(date_str: str | None) -> str | None:
     """Parse DD/MM/YYYY, DD.MM.YYYY, DD-MM-YYYY (or 2-digit years) and YYYY-MM-DD to ISO YYYY-MM-DD.
 
     Two-digit years follow Python's strptime pivot (00-68 -> 20xx, 69-99 -> 19xx).
@@ -114,7 +119,7 @@ def _best_fuzzy_ratio(text: str, alias: str) -> float:
     return max(SequenceMatcher(None, window, alias).ratio() for window in windows)
 
 
-def normalize_sender(raw_sender: Optional[str]) -> tuple[Optional[str], ConfidenceLevel]:
+def normalize_sender(raw_sender: str | None) -> tuple[str | None, ConfidenceLevel]:
     """Match a sender against SENDING_ENTITIES.
 
     Exact or whole-phrase match -> (canonical, high); unique fuzzy match -> (canonical, medium);
@@ -147,7 +152,7 @@ def normalize_sender(raw_sender: Optional[str]) -> tuple[Optional[str], Confiden
     return raw_sender.strip(), ConfidenceLevel.low
 
 
-def select_fuzzy_match(scores: Mapping[str, float]) -> Optional[str]:
+def select_fuzzy_match(scores: Mapping[str, float]) -> str | None:
     """Return the best candidate only if it clears the threshold and the ambiguity margin."""
     if not scores:
         return None
@@ -164,6 +169,10 @@ def _min_confidence(*levels: ConfidenceLevel) -> ConfidenceLevel:
     return min(levels, key=_CONFIDENCE_RANK.__getitem__)
 
 
+def _optional_str(raw: Any) -> str | None:
+    return (raw.strip() or None) if isinstance(raw, str) else None
+
+
 def _parse_confidence(raw: Any) -> ConfidenceLevel:
     try:
         return ConfidenceLevel(raw)
@@ -171,7 +180,7 @@ def _parse_confidence(raw: Any) -> ConfidenceLevel:
         return ConfidenceLevel.low
 
 
-def _parse_box(raw: Any, page_number: int, name: str, reasons: list[str]) -> Optional[BoundingBox]:
+def _parse_box(raw: Any, page_number: int, name: str, reasons: list[str]) -> BoundingBox | None:
     if raw is None:
         return None
     if not isinstance(raw, Mapping):
@@ -213,6 +222,133 @@ def _parse_text(raw: Any, name: str, page_number: int, reasons: list[str]) -> Fi
         reasons.append(f"{name}_box_missing")
 
     return FieldValue(value=value, confidence=_parse_confidence(raw.get("confidence")), box=box)
+
+
+class FieldReading(BaseModel):
+    """One reading of a field: the most likely text and any other plausible complete readings."""
+
+    value: str | None = None
+    confidence: ConfidenceLevel = ConfidenceLevel.low
+    alternatives: list[str] = []
+
+
+# Result of the targeted re-read per field name; None means the re-read was attempted but failed.
+FieldRechecks = Mapping[str, FieldReading | None]
+
+
+def parse_reading(raw: Any) -> FieldReading:
+    """Parse an untrusted {value, confidence, alternatives} object; anything malformed is dropped."""
+    if not isinstance(raw, Mapping):
+        return FieldReading()
+    value = _optional_str(raw.get("value"))
+    alternatives: list[str] = []
+    raw_alternatives = raw.get("alternatives")
+    if isinstance(raw_alternatives, list):
+        for item in raw_alternatives:
+            text = _optional_str(item)
+            if text is not None and text != value and text not in alternatives:
+                alternatives.append(text)
+    return FieldReading(
+        value=value,
+        confidence=_parse_confidence(raw.get("confidence")),
+        alternatives=alternatives[:MAX_ALTERNATIVES] if value is not None else [],
+    )
+
+
+def _is_valid_reading(name: str, value: str) -> bool:
+    if name == "id_number":
+        return validate_israeli_id(value)[1]
+    return normalize_date(value) is not None
+
+
+def _reading_key(name: str, value: str) -> str:
+    """Comparison key: separators and date formatting do not make two readings different."""
+    if name == "id_number":
+        return _ID_SEPARATORS.sub("", value.strip())
+    return normalize_date(value) or " ".join(value.split())
+
+
+def _has_doubt(name: str, reading: FieldReading) -> bool:
+    if reading.value is None:
+        return True
+    return (
+        reading.confidence is ConfidenceLevel.low
+        or bool(reading.alternatives)
+        or UNREADABLE_MARK in reading.value
+        or not _is_valid_reading(name, reading.value)
+    )
+
+
+def recheck_boxes(raw: Mapping[str, Any], page_number: int) -> dict[str, BoundingBox]:
+    """Located ID/date fields whose reading is missing, invalid, ambiguous, partial, or low-confidence.
+
+    A field without a valid box cannot be cropped and is left to manual review as is.
+    """
+    boxes = {}
+    for name in RECHECK_FIELDS:
+        field = raw.get(name)
+        if not isinstance(field, Mapping):
+            continue
+        box = _parse_box(field.get("box"), page_number, name, [])
+        if box is not None and _has_doubt(name, parse_reading(field)):
+            boxes[name] = box
+    return boxes
+
+
+def _distinct_readings(name: str, readings: list[str | None]) -> list[str]:
+    distinct: dict[str, str] = {}
+    for reading in readings:
+        if reading is not None:
+            distinct.setdefault(_reading_key(name, reading), reading)
+    return list(distinct.values())
+
+
+def _unresolved(field: FieldValue, candidates: list[str], reason: str, reasons: list[str]) -> FieldValue:
+    """Conflicting readings: no value is chosen; the readings are kept for the reviewer."""
+    reasons.append(reason)
+    return FieldValue(
+        confidence=ConfidenceLevel.low, box=field.box, raw_value=field.value, candidates=candidates
+    )
+
+
+def _reconcile_readings(
+    name: str, field: FieldValue, raw: Any, rechecks: FieldRechecks, reasons: list[str]
+) -> FieldValue:
+    """Apply ambiguity, partial-readability, and targeted re-read evidence to a digit field.
+
+    Agreement between the page reading and a confident, unambiguous re-read of the crop
+    resolves model-reported doubt (confidence becomes medium, never high). Any disagreement
+    leaves the field without a value and with every distinct reading as a candidate.
+    """
+    if field.value is None and name not in rechecks:
+        return field
+    alternatives = parse_reading(raw).alternatives if field.value is not None else []
+    if field.value is not None and UNREADABLE_MARK in field.value:
+        reasons.append(f"{name}_partially_unreadable")
+
+    recheck = rechecks.get(name)
+    if name in rechecks and recheck is None:
+        reasons.append(f"{name}_recheck_failed")
+    if recheck is not None:
+        agrees = (
+            field.value is not None
+            and recheck.value is not None
+            and recheck.confidence is not ConfidenceLevel.low
+            and not recheck.alternatives
+            and UNREADABLE_MARK not in field.value + recheck.value
+            and _reading_key(name, field.value) == _reading_key(name, recheck.value)
+        )
+        if agrees:
+            if _is_valid_reading(name, field.value):
+                return field.model_copy(update={"confidence": ConfidenceLevel.medium})
+            return field
+        readings = _distinct_readings(name, [field.value, *alternatives, recheck.value, *recheck.alternatives])
+        if len(readings) > 1 or (field.value is None and readings):
+            return _unresolved(field, readings, f"{name}_recheck_disagrees", reasons)
+
+    if alternatives:
+        return _unresolved(field, [field.value, *alternatives], f"{name}_ambiguous", reasons)
+    return field
 
 
 def _finalize_simple(field: FieldValue, name: str, reasons: list[str]) -> FieldValue:
@@ -258,7 +394,11 @@ def _finalize_received_date(
 
     if stamp.value is None and handwritten.value is None:
         reasons.append("received_date_missing")
-    return FieldValue(raw_value=stamp.value or handwritten.value, box=stamp.box or handwritten.box)
+    return FieldValue(
+        raw_value=stamp.value or stamp.raw_value or handwritten.value or handwritten.raw_value,
+        box=stamp.box or handwritten.box,
+        candidates=stamp.candidates or handwritten.candidates,
+    )
 
 
 def _finalize_sender(field: FieldValue, reasons: list[str]) -> FieldValue:
@@ -307,12 +447,16 @@ def _parse_items(raw: Any, name: str, page_number: int, reasons: list[str]) -> l
     return items
 
 
-def _optional_str(raw: Any) -> Optional[str]:
+def _optional_str(raw: Any) -> str | None:
     return (raw.strip() or None) if isinstance(raw, str) else None
 
 
-def finalize_record(raw: Mapping[str, Any], page_number: int) -> ExtractedRecord:
+def finalize_record(
+    raw: Mapping[str, Any], page_number: int, rechecks: FieldRechecks | None = None
+) -> ExtractedRecord:
     """Validate untrusted model output for one page and build an ExtractedRecord.
+
+    `rechecks` holds targeted re-reads of doubtful ID/date fields (see `recheck_boxes`).
 
     Any missing, invalid, or low-confidence data is recorded in review_reasons and sets
     requires_manual_review; the record is still a successfully processed page. A payload
@@ -327,9 +471,14 @@ def finalize_record(raw: Mapping[str, Any], page_number: int) -> ExtractedRecord
 
     first_name = _finalize_simple(text("first_name"), "first_name", reasons)
     last_name = _finalize_simple(text("last_name"), "last_name", reasons)
-    id_number = _finalize_id(text("id_number"), reasons)
+    rechecks = rechecks or {}
+
+    def digits(name: str) -> FieldValue:
+        return _reconcile_readings(name, text(name), raw.get(name), rechecks, reasons)
+
+    id_number = _finalize_id(digits("id_number"), reasons)
     received_date = _finalize_received_date(
-        text("received_date_stamp"), text("received_date_handwritten"), reasons
+        digits("received_date_stamp"), digits("received_date_handwritten"), reasons
     )
     sender = _finalize_sender(text("sender"), reasons)
 
@@ -379,7 +528,7 @@ class InvalidManualValueError(ValueError):
 
 
 def validate_manual_field(
-    name: str, value: Optional[str], box: Optional[BoundingBox] = None
+    name: str, value: str | None, box: BoundingBox | None = None
 ) -> tuple[FieldValue, list[str]]:
     """Validate a human correction with the same rules as extraction.
 

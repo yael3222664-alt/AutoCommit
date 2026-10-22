@@ -1,13 +1,21 @@
 """Vision extraction of one page image into a validated ExtractedRecord."""
 
+import asyncio
 import json
+import logging
 import re
-from typing import Any, Optional
+from typing import Any
 
 from ..config import get_settings
 from ..schemas import ExtractedRecord
+from .image_crop import ImageCropError, crop_regions
 from .ingestion_service import detect_image_mime_type
-from .validator_service import finalize_record
+from .validator_service import (
+    FieldReading,
+    finalize_record,
+    parse_reading,
+    recheck_boxes,
+)
 from .vision_provider import (
     VisionProvider,
     VisionProviderError,
@@ -15,6 +23,8 @@ from .vision_provider import (
     VisionProviderTimeoutError,
     get_vision_provider,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ExtractionError(Exception):
@@ -50,7 +60,9 @@ width (x), where 0 is the top/left edge and 1000 the bottom/right edge, with ymi
 and xmin <= xmax. The box must tightly enclose the text the value was read from.
 4. Transcribe values exactly as written. Do not translate, reformat, correct, or complete them.
 5. Patient identity: "first_name" and "last_name" of the patient, and "id_number": the \
-patient's Israeli ID number (תעודת זהות, up to 9 digits) exactly as written.
+patient's Israeli ID number (תעודת זהות, up to 9 digits) exactly as written, including any \
+leading zeros. Never add, drop, or reorder digits to make it 9 digits long or to satisfy the \
+check digit.
 6. Central numbers: find every sticker labeled "מרכזי" and every handwritten identifier \
 written next to such a sticker (typically 6 digits). Return each occurrence as a separate \
 item in "central_numbers" with "source" set to "sticker" or "handwritten". Never merge or \
@@ -58,7 +70,9 @@ drop occurrences.
 7. Receipt date: report both candidates and do not choose between them.
    - "received_date_stamp": the date inside the "התקבל" (received) stamp of the central laboratory.
    - "received_date_handwritten": a handwritten date written next to or below the "מרכזי" sticker.
-   Transcribe each date exactly as written (for example 05/03/2024).
+   Transcribe each date exactly as written (for example 05/03/2024), including its separators \
+and year length. Never swap day and month, complete a partial year, or adjust a date that \
+looks impossible; report what is written.
 8. Commitment / reference numbers: return every number labeled טופס 17, אסמכתא, \
 מספר דרישה (Maccabi), or דגימה (Leumit / hospital) as an item in "commitment_numbers" \
 with "label_type": "commitment" for טופס 17, "reference" for אסמכתא, "order" for \
@@ -67,9 +81,46 @@ with "label_type": "commitment" for טופס 17, "reference" for אסמכתא, "
 exactly as written on the form.
 10. Set "requires_manual_review" to true if any field is missing, unreadable, or \
 ambiguous, or if anything on the page is unclear.
+11. Handwritten digits ("id_number", "received_date_stamp", "received_date_handwritten"): \
+read every digit on its own. Write "?" in place of each digit you cannot read; never complete, \
+correct, or guess a digit. If a digit could plausibly be read more than one way (for example \
+1/7, 4/9, 5/6, 3/8, 0/6, 2/7), put the most likely reading in "value", every other complete \
+reading in "alternatives", and set "confidence" to "low". Otherwise "alternatives" is empty.
 """
 
 USER_PROMPT = "Extract the commitment form fields from this page image following the rules."
+
+_RECHECK_RULES = """\
+Rules:
+1. Read every digit on its own and transcribe it exactly as written, left to right, keeping \
+separators and leading zeros. Write "?" in place of each digit you cannot read.
+2. Never guess, complete, or correct digits, and never use a check digit or calendar rules to \
+choose a digit.
+3. If a digit could plausibly be read more than one way (for example 1/7, 4/9, 5/6, 3/8, 0/6, \
+2/7), put the most likely reading in "value", every other complete reading in "alternatives", \
+and set "confidence" to "low". Otherwise "alternatives" is empty.
+4. If no such value is visible in the image, set "value" to null and "confidence" to "low".
+5. Confidence: "high" clearly readable, "medium" readable with some uncertainty, "low" \
+unreadable or ambiguous.
+"""
+
+ID_RECHECK_PROMPT = (
+    "The image is a crop of a scanned Israeli medical commitment form around the patient's "
+    "Israeli ID number (תעודת זהות, up to 9 digits), often handwritten. Return JSON with the "
+    "ID number exactly as written.\n" + _RECHECK_RULES
+)
+DATE_RECHECK_PROMPT = (
+    "The image is a crop of a scanned Israeli medical commitment form around a date (from a "
+    "\"התקבל\" stamp or handwritten), written day first. Return JSON with the date exactly as "
+    "written (for example 05/03/2024); do not swap day and month or complete the year.\n"
+    + _RECHECK_RULES
+)
+RECHECK_USER_PROMPT = "Read the value in this cropped image following the rules."
+_RECHECK_PROMPTS = {
+    "id_number": ID_RECHECK_PROMPT,
+    "received_date_stamp": DATE_RECHECK_PROMPT,
+    "received_date_handwritten": DATE_RECHECK_PROMPT,
+}
 
 _CONFIDENCE_SCHEMA = {"type": "string", "enum": ["high", "medium", "low"]}
 _BOX_SCHEMA = {
@@ -93,13 +144,30 @@ _TEXT_FIELD_SCHEMA = _object(
     {"value": {"type": "string", "nullable": True}, "confidence": _CONFIDENCE_SCHEMA, "box": _BOX_SCHEMA}
 )
 
+_ALTERNATIVES_SCHEMA = {"type": "array", "items": {"type": "string"}}
+_DIGIT_FIELD_SCHEMA = _object(
+    {
+        "value": {"type": "string", "nullable": True},
+        "confidence": _CONFIDENCE_SCHEMA,
+        "box": _BOX_SCHEMA,
+        "alternatives": _ALTERNATIVES_SCHEMA,
+    }
+)
+RECHECK_SCHEMA: dict[str, Any] = _object(
+    {
+        "value": {"type": "string", "nullable": True},
+        "confidence": _CONFIDENCE_SCHEMA,
+        "alternatives": _ALTERNATIVES_SCHEMA,
+    }
+)
+
 RESPONSE_SCHEMA: dict[str, Any] = _object(
     {
         "first_name": _TEXT_FIELD_SCHEMA,
         "last_name": _TEXT_FIELD_SCHEMA,
-        "id_number": _TEXT_FIELD_SCHEMA,
-        "received_date_stamp": _TEXT_FIELD_SCHEMA,
-        "received_date_handwritten": _TEXT_FIELD_SCHEMA,
+        "id_number": _DIGIT_FIELD_SCHEMA,
+        "received_date_stamp": _DIGIT_FIELD_SCHEMA,
+        "received_date_handwritten": _DIGIT_FIELD_SCHEMA,
         "sender": _TEXT_FIELD_SCHEMA,
         "central_numbers": {
             "type": "array",
@@ -139,6 +207,16 @@ _CODE_FENCE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL)
 
 
 def _parse_payload(raw_text: str) -> dict[str, Any]:
+    payload = _parse_json_object(raw_text)
+    missing = [key for key in RESPONSE_SCHEMA["required"] if key not in payload]
+    if missing:
+        raise ExtractionError(
+            f"Vision provider response is missing fields: {', '.join(missing)}", "malformed_response"
+        )
+    return payload
+
+
+def _parse_json_object(raw_text: str) -> dict[str, Any]:
     text = raw_text.strip() if raw_text else ""
     fenced = _CODE_FENCE.match(text)
     if fenced:
@@ -151,11 +229,6 @@ def _parse_payload(raw_text: str) -> dict[str, Any]:
         raise ExtractionError("Vision provider returned malformed JSON", "malformed_response") from exc
     if not isinstance(payload, dict):
         raise ExtractionError("Vision provider response is not a JSON object", "malformed_response")
-    missing = [key for key in RESPONSE_SCHEMA["required"] if key not in payload]
-    if missing:
-        raise ExtractionError(
-            f"Vision provider response is missing fields: {', '.join(missing)}", "malformed_response"
-        )
     return payload
 
 
@@ -179,10 +252,41 @@ def _rescale_boxes(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+async def _recheck_fields(
+    provider: VisionProvider, image_bytes: bytes, raw: dict[str, Any], page_number: int
+) -> dict[str, FieldReading | None]:
+    """One targeted re-read per doubtful ID/date field, on a crop around its located box.
+
+    Never more than one call per field; a failed re-read is recorded as None so the field
+    goes to manual review instead of being retried again.
+    """
+    try:
+        crops = await asyncio.to_thread(crop_regions, image_bytes, recheck_boxes(raw, page_number))
+    except ImageCropError:
+        logger.warning("Field recheck skipped: page %s image could not be decoded", page_number)
+        return {}
+    rechecks: dict[str, FieldReading | None] = {}
+    for name, crop in crops.items():
+        try:
+            raw_text = await provider.generate_json(
+                image_bytes=crop,
+                mime_type="image/png",
+                system_prompt=_RECHECK_PROMPTS[name],
+                user_prompt=RECHECK_USER_PROMPT,
+                response_schema=RECHECK_SCHEMA,
+            )
+            rechecks[name] = parse_reading(_parse_json_object(raw_text))
+        except (VisionProviderError, ExtractionError):
+            logger.warning("Field recheck failed for %s on page %s", name, page_number)
+            rechecks[name] = None
+    return rechecks
+
+
 async def extract_record_from_image(
     image_bytes: bytes,
     page_number: int = 1,
-    provider: Optional[VisionProvider] = None,
+    provider: VisionProvider | None = None,
+    recheck_fields: bool = True,
 ) -> ExtractedRecord:
     """Extract and validate one page image. Raises ExtractionError on any failure."""
     if not image_bytes:
@@ -208,4 +312,6 @@ async def extract_record_from_image(
     except VisionProviderError as exc:
         raise ExtractionError(f"Vision provider failed: {exc}", "provider_error") from exc
 
-    return finalize_record(_rescale_boxes(_parse_payload(raw_text)), page_number)
+    raw = _rescale_boxes(_parse_payload(raw_text))
+    rechecks = await _recheck_fields(provider, image_bytes, raw, page_number) if recheck_fields else {}
+    return finalize_record(raw, page_number, rechecks)
