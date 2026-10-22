@@ -131,7 +131,7 @@ def test_invalid_image_code():
 
 
 def test_missing_provider_configuration_is_a_technical_failure(monkeypatch):
-    monkeypatch.setattr(extractor_service, "get_settings", lambda: Settings(_env_file=None, GEMINI_API_KEY=None))
+    monkeypatch.setattr(extractor_service, "get_settings", lambda: Settings(_env_file=None, GEMINI_API_KEY=None, GEMINI_API_KEYS=None))
     with pytest.raises(ExtractionError) as exc_info:
         _extract(None)
     assert exc_info.value.code == "provider_not_configured"

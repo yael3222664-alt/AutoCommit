@@ -12,7 +12,8 @@ def production_settings(tmp_path, **overrides) -> Settings:
         APP_ACCESS_PASSWORD="a-long-enough-password", SESSION_SECRET="s" * 40,
         DATABASE_URL="postgresql://user:pw@pooler.example:6543/postgres",
         PAGE_IMAGE_STORAGE="supabase", SUPABASE_URL="https://x.supabase.co",
-        SUPABASE_SERVICE_ROLE_KEY="service-key", GEMINI_API_KEY="gemini-key", FRONTEND_DIST_DIR=tmp_path,
+        SUPABASE_SERVICE_ROLE_KEY="service-key", GEMINI_API_KEY="gemini-key",
+        GEMINI_API_KEYS=None, FRONTEND_DIST_DIR=tmp_path,
     )
     values.update(overrides)
     return Settings(**values)

@@ -230,5 +230,6 @@ def test_run_without_provider_configuration_fails_clearly(tmp_path, monkeypatch,
 
     (tmp_path / "truth.json").write_text(json.dumps({"documents": [{"file": "a.pdf", "pages": []}]}))
     monkeypatch.setattr(get_settings(), "GEMINI_API_KEY", None)
+    monkeypatch.setattr(get_settings(), "GEMINI_API_KEYS", None)
     assert run.main([str(tmp_path / "truth.json")]) == 2
     assert "not configured" in capsys.readouterr().err

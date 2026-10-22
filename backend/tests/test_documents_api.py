@@ -145,7 +145,7 @@ def test_corrupted_pdf_is_rejected(client_with):
 
 
 def test_missing_vision_configuration_returns_503(monkeypatch):
-    monkeypatch.setattr(routes, "get_settings", lambda: Settings(_env_file=None, GEMINI_API_KEY=None))
+    monkeypatch.setattr(routes, "get_settings", lambda: Settings(_env_file=None, GEMINI_API_KEY=None, GEMINI_API_KEYS=None))
     routes._build_document_pipeline.cache_clear()
     try:
         response = _upload(TestClient(app), _pdf(1))

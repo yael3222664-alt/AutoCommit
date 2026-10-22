@@ -106,7 +106,7 @@ def test_network_errors_raise_without_leaking_key():
 
 def test_factory_requires_api_key():
     with pytest.raises(VisionProviderNotConfiguredError):
-        get_vision_provider(Settings(_env_file=None, GEMINI_API_KEY=None))
+        get_vision_provider(Settings(_env_file=None, GEMINI_API_KEY=None, GEMINI_API_KEYS=None))
 
 
 def test_factory_rejects_unknown_provider():
@@ -115,7 +115,7 @@ def test_factory_rejects_unknown_provider():
 
 
 def test_factory_builds_gemini_provider():
-    provider = get_vision_provider(Settings(_env_file=None, GEMINI_API_KEY="k"))
+    provider = get_vision_provider(Settings(_env_file=None, GEMINI_API_KEY="k", GEMINI_API_KEYS=None))
     assert isinstance(provider, GeminiVisionProvider)
 
 
@@ -190,7 +190,7 @@ def test_retry_delay_is_capped():
 
 
 def test_factory_passes_retry_setting():
-    provider = get_vision_provider(Settings(_env_file=None, GEMINI_API_KEY="k", VISION_MAX_RETRIES=5))
+    provider = get_vision_provider(Settings(_env_file=None, GEMINI_API_KEY="k", GEMINI_API_KEYS=None, VISION_MAX_RETRIES=5))
     assert provider._max_retries == 5
 
 
