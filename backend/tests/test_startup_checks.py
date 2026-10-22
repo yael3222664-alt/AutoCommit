@@ -23,6 +23,13 @@ def test_valid_production_configuration_passes(tmp_path):
     assert configuration_problems(production_settings(tmp_path)) == []
 
 
+def test_production_without_auth_passes_only_with_explicit_public_access(tmp_path):
+    settings = production_settings(
+        tmp_path, AUTH_ENABLED=False, ALLOW_PUBLIC_ACCESS=True, APP_ACCESS_PASSWORD=None, SESSION_SECRET=None
+    )
+    assert configuration_problems(settings) == []
+
+
 def test_development_defaults_pass():
     assert configuration_problems(Settings(_env_file=None)) == []
 

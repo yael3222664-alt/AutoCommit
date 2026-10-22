@@ -34,6 +34,9 @@ class Settings(BaseSettings):
 
     # Shared-password login guarding every /api route except health and auth.
     AUTH_ENABLED: bool = False
+    # Explicit opt-in to run production without the password gate: anyone with the URL
+    # can read, edit, and export records and spend vision-provider quota.
+    ALLOW_PUBLIC_ACCESS: bool = False
     APP_ACCESS_PASSWORD: SecretStr | None = None
     # HMAC key for session cookies; rotating it signs everyone out.
     SESSION_SECRET: SecretStr | None = None

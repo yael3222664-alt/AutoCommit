@@ -61,8 +61,8 @@ def configuration_problems(settings: Settings) -> list[str]:
             problems.append(f"SESSION_SECRET must have at least {MIN_SESSION_SECRET_LENGTH} characters")
 
     if settings.ENVIRONMENT == "production":
-        if not settings.AUTH_ENABLED:
-            problems.append("AUTH_ENABLED must be true in production")
+        if not settings.AUTH_ENABLED and not settings.ALLOW_PUBLIC_ACCESS:
+            problems.append("AUTH_ENABLED must be true in production unless ALLOW_PUBLIC_ACCESS is set")
         if settings.DEBUG:
             problems.append("DEBUG must be false in production")
         if not _is_postgres(settings.DATABASE_URL.get_secret_value()):

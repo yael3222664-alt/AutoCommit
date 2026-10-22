@@ -4,7 +4,7 @@ import os
 os.environ["DATABASE_URL"] = "sqlite://"
 # Deployment settings from the developer's shell must not leak into tests.
 for _name in (
-    "ENVIRONMENT", "AUTH_ENABLED", "APP_ACCESS_PASSWORD", "SESSION_SECRET", "FRONTEND_DIST_DIR",
+    "ENVIRONMENT", "AUTH_ENABLED", "ALLOW_PUBLIC_ACCESS", "APP_ACCESS_PASSWORD", "SESSION_SECRET", "FRONTEND_DIST_DIR",
     "PAGE_IMAGE_STORAGE", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_STORAGE_BUCKET",
 ):
     os.environ.pop(_name, None)
