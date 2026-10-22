@@ -20,7 +20,7 @@ const COMMITMENT_LABELS: Readonly<Record<string, string>> = {
   order: "מספר דרישה",
   sample: "דגימה",
 };
-const DEFAULT_COMMITMENT_LABEL = "מספר התחייבות";
+export const COMMITMENT_NUMBER_LABEL = "מספר התחייבות";
 
 /** A field of a record as shown in the review UI, with its visual grounding on this record's page. */
 export interface GroundedField {
@@ -40,7 +40,7 @@ function onPage(box: BoundingBox | null, pageNumber: number): BoundingBox | null
 }
 
 export function commitmentLabel(labelType: string | null): string {
-  return (labelType && COMMITMENT_LABELS[labelType]) ?? DEFAULT_COMMITMENT_LABEL;
+  return (labelType && COMMITMENT_LABELS[labelType]) ?? COMMITMENT_NUMBER_LABEL;
 }
 
 export function getGroundedFields(record: RecordResponse): GroundedField[] {

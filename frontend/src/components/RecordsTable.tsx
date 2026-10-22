@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { fieldText, isFieldEdited, type DraftState, type FieldEdits } from "../review/drafts";
 import {
   CENTRAL_NUMBER_LABEL,
+  COMMITMENT_NUMBER_LABEL,
   FIELD_LABELS,
   STATUS_LABELS,
   fieldNeedsAttention,
@@ -14,13 +15,14 @@ import { SOURCE_LABELS, recordSourceKinds } from "../review/sourceTags";
 import type { SaveState } from "../store/recordStore";
 import type { RecordResponse } from "../types/record";
 
-type Column = { kind: "text"; field: TextFieldName } | { kind: "central" };
+type Column = { kind: "text"; field: TextFieldName } | { kind: "central" } | { kind: "commitment" };
 
 const COLUMNS: readonly Column[] = [
   { kind: "text", field: "first_name" },
   { kind: "text", field: "last_name" },
   { kind: "text", field: "id_number" },
   { kind: "central" },
+  { kind: "commitment" },
   { kind: "text", field: "received_date" },
   { kind: "text", field: "sender" },
 ];
@@ -52,8 +54,8 @@ export function RecordsTable(props: RecordsTableProps) {
             <tr>
               <th scope="col">מקור</th>
               {COLUMNS.map((column) => (
-                <th key={column.kind === "text" ? column.field : "central"} scope="col">
-                  {column.kind === "text" ? FIELD_LABELS[column.field] : CENTRAL_NUMBER_LABEL}
+                <th key={column.kind === "text" ? column.field : column.kind} scope="col">
+                  {column.kind === "text" ? FIELD_LABELS[column.field] : column.kind === "central" ? CENTRAL_NUMBER_LABEL : COMMITMENT_NUMBER_LABEL}
                 </th>
               ))}
             </tr>
@@ -145,9 +147,12 @@ function RecordRow({ record, edits, save, active, activeKey, onSelect, onFocusFi
             </td>
           );
         }
-        const first = fields.get("central_numbers.0");
-        const text = record.central_numbers.map((item) => item.value).join(", ");
-        return <td key="central">{cell(first ? first.key : "central_numbers", first, text, false, null)}</td>;
+        const isCommitment = column.kind === "commitment";
+        const items = isCommitment ? record.commitment_numbers : record.central_numbers;
+        const listKey = isCommitment ? "commitment_numbers" : "central_numbers";
+        const first = fields.get(`${listKey}.0`);
+        const text = items.map((item) => item.value).join(", ");
+        return <td key={listKey}>{cell(first ? first.key : listKey, first, text, false, null)}</td>;
       })}
     </tr>
   );

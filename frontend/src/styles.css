@@ -107,6 +107,32 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .upload-button:has(input:disabled) { opacity: 0.55; }
 .upload-button:focus-within { box-shadow: var(--focus-ring); }
 
+/* Export dropdown */
+.export-menu { position: relative; }
+.export-menu > summary { list-style: none; cursor: pointer; user-select: none; }
+.export-menu > summary::-webkit-details-marker { display: none; }
+.export-menu[open] > summary { box-shadow: var(--focus-ring); }
+.export-options {
+  position: absolute;
+  inset-inline-start: 0;
+  top: calc(100% + 4px);
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 4px 16px rgb(15 23 42 / 0.12);
+  z-index: 10;
+}
+.export-options a {
+  padding: 8px 12px;
+  color: var(--color-text);
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+}
+.export-options a:hover, .export-options a:focus-visible { background: var(--color-surface-hover); }
+
 /* Prominent spinner while a document upload is in flight. */
 .upload-status { display: inline-flex; align-items: center; gap: var(--space-2, 0.5rem); }
 .upload-spinner {

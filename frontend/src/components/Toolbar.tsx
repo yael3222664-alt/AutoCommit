@@ -78,6 +78,14 @@ export function Toolbar(props: ToolbarProps) {
           onChange={onFileSelected}
         />
       </label>
+      <details className="export-menu">
+        <summary className="btn">ייצוא</summary>
+        <div className="export-options" role="menu">
+          <a role="menuitem" href="api/records/export?format=xlsx" download="autocommit-export.xlsx">Excel (.xlsx)</a>
+          <a role="menuitem" href="api/records/export?format=csv" download="autocommit-export.csv">CSV (.csv)</a>
+          <a role="menuitem" href="api/records/export?format=json" download="autocommit-export.json">JSON (.json)</a>
+        </div>
+      </details>
       <button type="button" className="btn btn-primary" disabled={pendingCount === 0 || saving} onClick={props.onSaveAll}>
         {saving ? "שומר…" : `שמירה (${pendingCount})`}
       </button>

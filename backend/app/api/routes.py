@@ -31,6 +31,7 @@ from ..services.page_image_store import (
     PageImageStore,
 )
 from ..services.pdf_service import PDFProcessingError
+from ..services.export_service import EXPORT_FORMATS
 from ..services.record_service import (
     InvalidRecordUpdateError,
     InvalidTransitionError,
@@ -166,6 +167,34 @@ def list_records(
         offset=offset,
     )
     return RecordListResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.get("/records/export")
+def export_records(
+    export_format: str = Query("csv", alias="format", pattern="^(csv|json|xlsx)$"),
+    status_filter: RecordStatus | None = Query(None, alias="status"),
+    sender: str | None = None,
+    requires_manual_review: bool | None = None,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+    records: RecordService = Depends(get_record_service),
+) -> Response:
+    """Download records as CSV, JSON or Excel — one row per commitment number."""
+    filename, media_type, render = EXPORT_FORMATS[export_format]
+    items, _total = records.get_records(
+        status=status_filter,
+        sender=sender,
+        requires_manual_review=requires_manual_review,
+        created_from=created_from,
+        created_to=created_to,
+        limit=10_000,
+        offset=0,
+    )
+    return Response(
+        render(items),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/records/{record_id}", response_model=RecordResponse)
