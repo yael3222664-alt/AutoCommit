@@ -83,7 +83,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   background: var(--color-surface); border-block-end: var(--border-width) solid var(--color-border); box-shadow: var(--shadow-sm);
 }
 .toolbar-brand { margin: 0; margin-inline-end: var(--space-3); font-size: var(--font-size-xl); font-weight: var(--font-weight-bold); }
-.brand-logo { display: block; height: 44px; width: auto; }
+.brand-logo { display: block; height: 52px; width: auto; }
 .auth-logo { display: block; height: 90px; width: auto; margin-inline: auto; }
 .toolbar-search {
   flex: 1 1 260px; max-inline-size: 420px; padding-block: var(--space-2); padding-inline: var(--space-3);
@@ -350,7 +350,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   border-block-start: var(--border-width) solid var(--color-border);
   background: var(--color-surface-muted); text-align: center;
 }
-.footer-logo { display: block; height: 40px; width: auto; }
+.footer-logo { display: block; height: 80px; width: auto; }
 .footer-credits { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .footer-contact { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-subtle); }
 .app-footer a { color: var(--color-action); text-decoration: none; }
