@@ -13,12 +13,13 @@ function differs(record: RecordResponse, name: TextFieldName, text: string): boo
   return text.trim() !== (record[name].value ?? "");
 }
 
-/** Only changed fields are sent; an emptied field is sent as an explicit null. */
-export function buildFieldPatch(record: RecordResponse, edits: FieldEdits | undefined): RecordUpdatePayload {
+/** Every touched field is sent — an unchanged value is an explicit confirmation (clears its review flag).
+ *  An emptied field is sent as an explicit null. */
+export function buildFieldPatch(_record: RecordResponse, edits: FieldEdits | undefined): RecordUpdatePayload {
   const payload: RecordUpdatePayload = {};
   for (const name of TEXT_FIELDS) {
     const text = edits?.[name];
-    if (text === undefined || !differs(record, name, text)) continue;
+    if (text === undefined) continue;
     const next = text.trim();
     payload[name] = next === "" ? null : next;
   }
@@ -29,9 +30,8 @@ export function hasChanges(record: RecordResponse, edits: FieldEdits | undefined
   return Object.keys(buildFieldPatch(record, edits)).length > 0;
 }
 
-export function isFieldEdited(record: RecordResponse, edits: FieldEdits | undefined, name: TextFieldName): boolean {
-  const text = edits?.[name];
-  return text !== undefined && differs(record, name, text);
+export function isFieldEdited(_record: RecordResponse, edits: FieldEdits | undefined, name: TextFieldName): boolean {
+  return edits?.[name] !== undefined;
 }
 
 export function pendingRecords(records: readonly RecordResponse[], drafts: DraftState): RecordResponse[] {

@@ -6,19 +6,24 @@ import { buildFieldPatch, createDraftStore, fieldText, hasChanges, isFieldEdited
 const record = makeRecord();
 
 describe("draft helpers", () => {
-  it("builds a patch with only changed fields and null for emptied ones", () => {
+  it("sends every touched field — an unchanged value is a confirmation", () => {
     expect(buildFieldPatch(record, { first_name: "", last_name: " Levi ", id_number: "000000018" })).toEqual({
       first_name: null,
       last_name: "Levi",
+      id_number: "000000018",
     });
-    expect(buildFieldPatch(record, { first_name: " Dana ", last_name: "" })).toEqual({});
+    expect(buildFieldPatch(record, { first_name: " Dana ", last_name: "" })).toEqual({
+      first_name: "Dana",
+      last_name: null,
+    });
     expect(buildFieldPatch(record, undefined)).toEqual({});
   });
 
   it("shows edited text over the record value", () => {
     expect(fieldText(record, { first_name: "Dina" }, "first_name")).toBe("Dina");
     expect(fieldText(record, undefined, "last_name")).toBe("");
-    expect(isFieldEdited(record, { first_name: "Dana" }, "first_name")).toBe(false);
+    expect(isFieldEdited(record, { first_name: "Dana" }, "first_name")).toBe(true);
+    expect(isFieldEdited(record, undefined, "first_name")).toBe(false);
     expect(hasChanges(record, { sender: "כללית" })).toBe(true);
   });
 
@@ -26,7 +31,8 @@ describe("draft helpers", () => {
     const approved = makeRecord({ id: "rec-2", status: "approved" });
     const drafts = { "rec-1": { last_name: "Levi" }, "rec-2": { last_name: "Cohen" }, "rec-3": { last_name: "X" } };
     expect(pendingRecords([record, approved], drafts).map((r) => r.id)).toEqual(["rec-1"]);
-    expect(pendingRecords([record], { "rec-1": { first_name: "Dana" } })).toEqual([]);
+    expect(pendingRecords([record], { "rec-1": { first_name: "Dana" } }).map((r) => r.id)).toEqual(["rec-1"]);
+    expect(pendingRecords([record], {})).toEqual([]);
   });
 });
 

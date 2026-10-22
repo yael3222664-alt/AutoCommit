@@ -111,6 +111,13 @@ function RecordRow({ record, edits, save, active, activeKey, onSelect, onFocusFi
           onFocus={() => onFocusField(record.id, key)}
           onBlur={() => onFocusField(record.id, null)}
           onChange={(event) => textField && onEdit(record.id, textField, event.target.value)}
+          onKeyDown={(event) => {
+            // Enter confirms the current value of a flagged field (kept text counts as a confirmation).
+            if (event.key === "Enter" && textField) {
+              onEdit(record.id, textField, event.currentTarget.value);
+              event.currentTarget.blur();
+            }
+          }}
         />
         {(attention || edited) && (
           <span className="cell-badge" aria-hidden="true">
