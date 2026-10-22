@@ -153,7 +153,7 @@ def _call_with_retries(responses, max_retries=3):
 def test_overload_and_rate_limit_responses_are_retried_with_backoff():
     responses = [
         httpx.Response(503, json={"error": {"message": "high demand"}}),
-        httpx.Response(429, headers={"retry-after": "7"}, json={}),
+        httpx.Response(503, headers={"retry-after": "7"}, json={}),
         httpx.Response(200, json=_gemini_response()),
     ]
     run, requests, delays = _call_with_retries(responses)
@@ -181,12 +181,20 @@ def test_client_errors_are_not_retried():
 
 def test_retry_delay_is_capped():
     responses = [
-        httpx.Response(429, headers={"retry-after": "3600"}, json={}),
+        httpx.Response(503, headers={"retry-after": "3600"}, json={}),
         httpx.Response(200, json=_gemini_response()),
     ]
     run, _, delays = _call_with_retries(responses)
     asyncio.run(run())
     assert delays == [30.0]
+
+
+def test_quota_errors_are_not_retried_so_rotation_can_fail_over():
+    responses = [httpx.Response(429, json={}), httpx.Response(200, json=_gemini_response())]
+    run, requests, delays = _call_with_retries(responses)
+    with pytest.raises(VisionProviderQuotaError):
+        asyncio.run(run())
+    assert len(requests) == 1 and delays == []
 
 
 def test_factory_passes_retry_setting():

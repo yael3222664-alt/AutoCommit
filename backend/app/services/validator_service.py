@@ -27,6 +27,9 @@ from ..schemas import (
 ISRAELI_ID_LENGTH = 9
 # Fields read digit by digit from handwriting, eligible for one targeted re-read of their crop.
 RECHECK_FIELDS = ("id_number", "received_date_stamp", "received_date_handwritten")
+# Each re-read is a vision API call; cap per page so a doubtful page cannot
+# multiply the request's quota cost beyond this bound.
+MAX_RECHECKS_PER_PAGE = 2
 # The model writes this in place of each digit it cannot read.
 UNREADABLE_MARK = "?"
 MAX_ALTERNATIVES = 5
@@ -286,6 +289,8 @@ def recheck_boxes(raw: Mapping[str, Any], page_number: int) -> dict[str, Boundin
     """
     boxes = {}
     for name in RECHECK_FIELDS:
+        if len(boxes) >= MAX_RECHECKS_PER_PAGE:
+            break
         field = raw.get(name)
         if not isinstance(field, Mapping):
             continue

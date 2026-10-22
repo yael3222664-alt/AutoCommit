@@ -54,7 +54,9 @@ def _to_gemini_schema(schema: Any) -> Any:
 
 
 # Overload and rate-limit responses are worth retrying; other errors are not.
-RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+# 429 is deliberately absent: a quota-exhausted key will not recover during backoff,
+# so the request fails fast and RotatingGeminiProvider moves to the next key.
+RETRYABLE_STATUS_CODES = frozenset({500, 502, 503, 504})
 _MAX_RETRY_DELAY_SECONDS = 30.0
 
 

@@ -106,7 +106,8 @@ def test_recheck_boxes_picks_invalid_low_confidence_and_missing_with_box():
         "received_date_handwritten": _field(None, "low"),        # missing but located
     }
     boxes = recheck_boxes(raw, 7)
-    assert set(boxes) == {"id_number", "received_date_stamp", "received_date_handwritten"}
+    # Capped at MAX_RECHECKS_PER_PAGE, in RECHECK_FIELDS priority order.
+    assert set(boxes) == {"id_number", "received_date_stamp"}
     assert all(box.page_number == 7 for box in boxes.values())
 
 
