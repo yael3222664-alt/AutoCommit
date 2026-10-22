@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from ..config import get_settings
+from ..constants import SENDING_ENTITIES
 from ..schemas import ExtractedRecord
 from .image_crop import ImageCropError, crop_regions
 from .ingestion_service import detect_image_mime_type
@@ -77,8 +78,12 @@ looks impossible; report what is written.
 מספר דרישה (Maccabi), or דגימה (Leumit / hospital) as an item in "commitment_numbers" \
 with "label_type": "commitment" for טופס 17, "reference" for אסמכתא, "order" for \
 מספר דרישה, and "sample" for דגימה.
-9. Sender: "sender" is the sending organization (HMO, hospital, or medical institution) \
-exactly as written on the form.
+9. Sender: "sender" is the sending organization — an HMO (קופת חולים) or a hospital \
+(בית חולים). The approved sender list is closed: SENDER_LIST. Report the name exactly \
+as written on the form; the validator will match it to the list. Never guess or \
+substitute a similar-looking name — if the written sender does not clearly appear on \
+the form, set "value" to null, "confidence" to "low", and "requires_manual_review" to \
+true.
 10. Set "requires_manual_review" to true if any field is missing, unreadable, or \
 ambiguous, or if anything on the page is unclear.
 11. Handwritten digits ("id_number", "received_date_stamp", "received_date_handwritten"): \
@@ -87,6 +92,8 @@ correct, or guess a digit. If a digit could plausibly be read more than one way 
 1/7, 4/9, 5/6, 3/8, 0/6, 2/7), put the most likely reading in "value", every other complete \
 reading in "alternatives", and set "confidence" to "low". Otherwise "alternatives" is empty.
 """
+
+SYSTEM_PROMPT = SYSTEM_PROMPT.replace("SENDER_LIST", ", ".join(SENDING_ENTITIES))
 
 USER_PROMPT = "Extract the commitment form fields from this page image following the rules."
 

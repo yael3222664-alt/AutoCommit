@@ -5,6 +5,7 @@ import pytest
 
 from backend.app.config import Settings
 from backend.app.services import extractor_service
+from backend.app.constants import SENDING_ENTITIES
 from backend.app.services.extractor_service import (
     RESPONSE_SCHEMA,
     SYSTEM_PROMPT,
@@ -172,4 +173,11 @@ def test_out_of_grid_or_non_numeric_boxes_are_rejected_not_corrected(box):
 
 def test_prompt_asks_for_the_grid_that_is_converted():
     assert "integers from 0 to 1000" in SYSTEM_PROMPT
+
+
+def test_prompt_restricts_sender_to_the_closed_entity_list():
+    for entity in SENDING_ENTITIES:
+        assert entity in SYSTEM_PROMPT
+    assert "Never guess" in SYSTEM_PROMPT
+    assert "SENDER_LIST" not in SYSTEM_PROMPT
     assert extractor_service.PROVIDER_BOX_SCALE == 1000
