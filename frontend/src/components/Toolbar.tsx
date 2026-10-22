@@ -1,6 +1,29 @@
-import type { ChangeEvent } from "react";
+import { useState, type ChangeEvent } from "react";
 
 import { STATUS_FILTER_LABELS, STATUS_FILTERS, type StatusFilter } from "../review/recordFilters";
+
+const EXPORT_FORMATS = ["xlsx", "csv", "json"] as const;
+type ExportFormat = (typeof EXPORT_FORMATS)[number];
+const EXPORT_LABELS: Record<ExportFormat, string> = {
+  xlsx: "Excel (.xlsx)",
+  csv: "CSV (.csv)",
+  json: "JSON (.json)",
+};
+
+/** Fetch the export and trigger exactly one browser download for it. */
+async function downloadExport(format: ExportFormat): Promise<void> {
+  const response = await fetch(`api/records/export?format=${format}`);
+  if (!response.ok) throw new Error(`Export failed with status ${response.status}`);
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `autocommit-export.${format}`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
 
 export interface ToolbarProps {
   query: string;
@@ -19,6 +42,16 @@ export interface ToolbarProps {
 
 /** Search, status filter, batch save and upload for the records table. */
 export function Toolbar(props: ToolbarProps) {
+  const [exporting, setExporting] = useState(false);
+  async function onExport(format: ExportFormat) {
+    setExporting(true);
+    try {
+      await downloadExport(format);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const { query, onQueryChange, statusFilter, onStatusFilterChange, counts, pendingCount, saving, failedSaves } = props;
 
   function onFileSelected(event: ChangeEvent<HTMLInputElement>) {
@@ -81,9 +114,20 @@ export function Toolbar(props: ToolbarProps) {
       <details className="export-menu">
         <summary className="btn">ייצוא</summary>
         <div className="export-options" role="menu">
-          <a role="menuitem" href="api/records/export?format=xlsx" download="autocommit-export.xlsx">Excel (.xlsx)</a>
-          <a role="menuitem" href="api/records/export?format=csv" download="autocommit-export.csv">CSV (.csv)</a>
-          <a role="menuitem" href="api/records/export?format=json" download="autocommit-export.json">JSON (.json)</a>
+          {EXPORT_FORMATS.map((format) => (
+            <button
+              key={format}
+              type="button"
+              role="menuitem"
+              disabled={exporting}
+              onClick={(event) => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                void onExport(format);
+              }}
+            >
+              {EXPORT_LABELS[format]}
+            </button>
+          ))}
         </div>
       </details>
       <button type="button" className="btn btn-primary" disabled={pendingCount === 0 || saving} onClick={props.onSaveAll}>

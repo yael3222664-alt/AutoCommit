@@ -157,11 +157,12 @@ describe("Toolbar", () => {
     expect(html).toContain('<input type="file" accept="application/pdf,image/png,image/jpeg" disabled=""');
   });
 
-  it("offers Excel, CSV and JSON export links", () => {
+  it("offers Excel, CSV and JSON export buttons", () => {
     const html = renderToStaticMarkup(<Toolbar {...props} />);
-    expect(html).toContain('href="api/records/export?format=xlsx" download="autocommit-export.xlsx"');
-    expect(html).toContain('href="api/records/export?format=csv" download="autocommit-export.csv"');
-    expect(html).toContain('href="api/records/export?format=json" download="autocommit-export.json"');
+    expect(html).toContain("Excel (.xlsx)");
+    expect(html).toContain("CSV (.csv)");
+    expect(html).toContain("JSON (.json)");
+    expect(html).toContain(">ייצוא</summary>");
   });
 
   it("disables batch save with nothing pending and reports failed saves", () => {
